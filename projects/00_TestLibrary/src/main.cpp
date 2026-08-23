@@ -7,13 +7,13 @@
  *  ese orden. Todo lo demas son bloques que se registran.
  * 
  * PRUEBA
- * PRUEBA 2
  *
  *  RECUERDA, que aqui no estamos en el IDE de Arduino:
  *    - hay que incluir <Arduino.h> a mano
  *    - hay que declarar los prototipos antes de usar las funciones
  * ========================================================================== */
 
+ 
 #include <Arduino.h>
 #include "HardwareConfig.h"     // tabla generada desde diagram.json
 #include "Proceso.h"
