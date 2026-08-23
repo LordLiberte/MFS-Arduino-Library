@@ -1,5 +1,5 @@
 /* =============================================================================
- *  02_cinta
+ *  02_LEDs
  * -----------------------------------------------------------------------------
  *  Esqueleto generado. Compila y funciona tal cual con un pulsador y un LED.
  *
@@ -31,7 +31,7 @@ void escribirSalidas();
 void setup() {
   Serial.begin(115200);
   while (!Serial && millis() < 2000) { }
-  Serial.println(F("=== 02_cinta ==="));
+  Serial.println(F("=== 02_LEDs ==="));
 
   HW.begin();                                  // pines e imagen de proceso
   manager.registerBlock(&proceso, F("PROCESO"));
@@ -60,9 +60,10 @@ void loop() {
  *  por segundo.
  * -------------------------------------------------------------------------- */
 void leerEntradas() {
-  proceso.ordenMarcha = HW.Pulsador_Marcha.hasRisen();
+  proceso.ordenMarcha = HW.btn1.hasRisen();
 }
 
 void escribirSalidas() {
-  HW.Piloto_Trabajo.set(proceso.salida);
+  HW.GreenLed.set(proceso.GreenLed);
+  HW.RedLed.set(proceso.RedLed);
 }

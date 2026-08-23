@@ -1,6 +1,6 @@
-# 02_cinta
+# 02_LEDs
 
-Proyecto de CoreFSM. Placa: **nanoatmega328**.
+Proyecto de CoreFSM. Placa: **uno**.
 
 ## Compilar
 
