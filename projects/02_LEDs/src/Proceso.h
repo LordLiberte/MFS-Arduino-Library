@@ -16,6 +16,10 @@ enum Alarmas : uint16_t {
 
 class Proceso : public SequenceBlock {
   public:
+
+    /* Variables internas */
+    
+
     /* ---- ENTRADAS ---- */
     bool ordenMarcha = false;
 
@@ -30,7 +34,7 @@ class Proceso : public SequenceBlock {
       setName(F("PROCESO"));
       setInitialStep(Inizalizacion);
       setStep(Inizalizacion);
-      setCycleTimeout(30000);
+      setCycleTimeout(100000);
     }
 
     void update() override {
@@ -50,6 +54,7 @@ class Proceso : public SequenceBlock {
           if (ordenMarcha) {
             setStep(ON_GreenLed);
           }
+
           break;
 
         case ON_GreenLed:
