@@ -1,4 +1,30 @@
-# tools/ — Generador de la tabla de hardware
+# tools/ — Herramientas del proyecto
+
+## `nuevo_proyecto.py`
+
+Crea una carpeta de proyecto nueva bajo `proyectos/`, ya cableada contra la
+librería y lista para compilar sin tocar nada.
+
+```bash
+python lib/CoreFSM/tools/nuevo_proyecto.py 03_brazo
+python lib/CoreFSM/tools/nuevo_proyecto.py 04_dosificador --placa esp32
+python lib/CoreFSM/tools/nuevo_proyecto.py 05_prueba --sin-wokwi
+```
+
+Placas: `nano` (por defecto), `uno`, `mega`, `esp32`. Se puede lanzar desde
+cualquier sitio del repositorio: busca la raíz sola (la reconoce por tener
+`lib/CoreFSM/`).
+
+Genera `platformio.ini` con las rutas relativas correctas, un `src/main.cpp` y
+un `src/Proceso.h` que compilan tal cual, un `diagram.json` mínimo con un
+pulsador y un LED, `wokwi.toml` para simular en VS Code, y ejecuta el generador
+para que `include/HardwareConfig.h` exista desde el primer momento.
+
+Que todos los proyectos salgan con la misma forma tiene una consecuencia útil
+aguas abajo: el CI los descubre solo buscando `proyectos/*/platformio.ini`, sin
+que haya que registrar nada en ningún sitio.
+
+---
 
 ## `wokwi2corefsm.py`
 

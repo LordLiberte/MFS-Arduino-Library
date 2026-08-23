@@ -1,0 +1,188 @@
+# =============================================================================
+#  Compilación automática (CI)
+# -----------------------------------------------------------------------------
+#  Se ejecuta en cada push a cualquier rama y en cada pull request. Compila
+#  TODOS los proyectos de proyectos/ y todos los ejemplos de la librería.
+#
+#  Lo importante: no hay que registrar nada. Cuando creas un proyecto con
+#  nuevo_proyecto.py, el CI lo descubre solo buscando */platformio.ini dentro de
+#  proyectos/ o projects/. Por eso conviene que todos tengan la misma forma.
+#
+#  Para qué sirve de verdad: para que 'main siempre compila' deje de depender de
+#  que te acuerdes de comprobarlo. Si una rama rompe algo, te sale la X en rojo
+#  en GitHub antes de fusionarla.
+# =============================================================================
+
+name: Compilar
+
+on:
+  push:
+    branches: ['**']          # todas las ramas, no solo main
+  pull_request:
+  workflow_dispatch:          # y a mano, desde la pestaña Actions
+
+# Si empujas dos veces seguidas, cancela la ejecución anterior: no tiene sentido
+# gastar minutos compilando un commit que ya has reemplazado.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  #  1. Averiguar qué proyectos hay
+  # ---------------------------------------------------------------------------
+  descubrir:
+    name: Buscar proyectos
+    runs-on: ubuntu-latest
+    outputs:
+      proyectos: ${{ steps.buscar.outputs.proyectos }}
+      hay:       ${{ steps.buscar.outputs.hay }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # OJO CON LAS MAYUSCULAS: este runner es Linux, y en Linux 'Lib' y 'lib'
+      # son carpetas DISTINTAS. En Windows no, y por eso un fallo de mayusculas
+      # funciona en tu ordenador y solo se rompe aqui. Se comprueba antes de
+      # nada para que el mensaje sea claro en vez de un error de compilacion
+      # incomprensible mas adelante.
+      - name: Comprobar mayusculas de las carpetas clave
+        run: |
+          if [ ! -d lib/CoreFSM ]; then
+            echo "ERROR: no existe lib/CoreFSM (en minusculas)."
+            echo "Esto es lo que hay en la raiz del repositorio:"
+            ls -la
+            echo ""
+            echo "Si la tienes como 'Lib/CoreFSM', en Windows te funciona pero"
+            echo "aqui no. Renombrala en dos pasos, que Git en Windows no"
+            echo "detecta un cambio de solo mayusculas:"
+            echo "    git mv Lib lib_tmp && git mv lib_tmp lib"
+            exit 1
+          fi
+
+      - id: buscar
+        name: Localizar los proyectos
+        run: |
+          # Acepta 'proyectos/' y 'projects/': el nombre lo elige quien monta
+          # el repositorio, no la herramienta.
+          mapfile -t dirs < <(find proyectos projects -mindepth 2 -maxdepth 2 \
+                                -name platformio.ini -printf '%h\n' 2>/dev/null | sort)
+          if [ ${#dirs[@]} -eq 0 ]; then
+            echo "No hay ningun proyecto todavia." >> "$GITHUB_STEP_SUMMARY"
+            echo "hay=false"     >> "$GITHUB_OUTPUT"
+            echo "proyectos=[]"  >> "$GITHUB_OUTPUT"
+          else
+            printf 'Proyectos encontrados: %d\n\n' "${#dirs[@]}" >> "$GITHUB_STEP_SUMMARY"
+            printf -- '- `%s`\n' "${dirs[@]}" >> "$GITHUB_STEP_SUMMARY"
+            json=$(printf '%s\n' "${dirs[@]}" | jq -R -s -c 'split("\n")[:-1]')
+            echo "hay=true"            >> "$GITHUB_OUTPUT"
+            echo "proyectos=$json"     >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  #  2. Compilar cada proyecto, en paralelo y por separado
+  # ---------------------------------------------------------------------------
+  compilar:
+    name: ${{ matrix.proyecto }}
+    needs: descubrir
+    if: needs.descubrir.outputs.hay == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      # fail-fast: false = si uno falla, los demas SIGUEN compilando. Asi ves de
+      # una sola tirada todo lo que esta roto, no solo lo primero que se rompio.
+      fail-fast: false
+      matrix:
+        proyecto: ${{ fromJSON(needs.descubrir.outputs.proyectos) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # El compilador de AVR pesa y tarda en bajarse. Cacheado, las ejecuciones
+      # siguientes empiezan en segundos.
+      - name: Cache de PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.cache/pip
+          key: pio-${{ runner.os }}-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+
+      - name: Instalar PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Compilar
+        run: |
+          set -o pipefail
+          pio run -d "${{ matrix.proyecto }}" 2>&1 | tee salida.txt
+
+      - name: Anotar el consumo de memoria
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.proyecto }}"
+            grep -E '^(RAM|Flash):' salida.txt | sed 's/^/    /' || echo "    (sin datos)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Si HardwareConfig.h cambia al compilar, es que el que hay commiteado
+      # estaba desfasado respecto al diagram.json. No rompe la compilacion, pero
+      # conviene saberlo: el repositorio esta diciendo una cosa y el esquema otra.
+      - name: Comprobar que la tabla de hardware esta al dia
+        if: always()
+        run: |
+          if ! git diff --quiet -- "${{ matrix.proyecto }}/include/"; then
+            echo ":warning: **${{ matrix.proyecto }}**: \`HardwareConfig.h\` estaba desfasado respecto a \`diagram.json\`. Recompila en local y haz commit del archivo regenerado." >> "$GITHUB_STEP_SUMMARY"
+            git --no-pager diff -- "${{ matrix.proyecto }}/include/"
+          fi
+
+  # ---------------------------------------------------------------------------
+  #  3. Compilar los ejemplos de la librería
+  # ---------------------------------------------------------------------------
+  #  Esto vigila la LIBRERÍA, no tus proyectos. Un cambio en lib/CoreFSM/ afecta
+  #  a todo a la vez, y los ejemplos son la red que avisa si has roto algo que
+  #  ahora mismo no usa ninguno de tus proyectos.
+  # ---------------------------------------------------------------------------
+  ejemplos:
+    name: Ejemplos de la libreria
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache de PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.cache/pip
+          key: pio-ejemplos-${{ runner.os }}
+          restore-keys: pio-ejemplos-
+
+      - name: Instalar PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Compilar todos los ejemplos
+        run: |
+          fallos=0
+          for d in lib/CoreFSM/examples/*/; do
+            nombre=$(basename "$d")
+            echo "::group::$nombre"
+            if pio ci --board=nanoatmega328 --lib=lib/CoreFSM "$d"; then
+              echo "- OK \`$nombre\`" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- FALLA \`$nombre\`" >> "$GITHUB_STEP_SUMMARY"
+              fallos=$((fallos + 1))
+            fi
+            echo "::endgroup::"
+          done
+          if [ "$fallos" -gt 0 ]; then
+            echo "$fallos ejemplo(s) no compilan."
+            exit 1
+          fi

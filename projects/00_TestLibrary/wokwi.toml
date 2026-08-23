@@ -1,0 +1,7 @@
+# Simulacion dentro de VS Code (extension "Wokwi for VS Code").
+# Compila primero, y luego Ctrl+Mayus+P -> "Wokwi: Start Simulator".
+# Si cambias el nombre del entorno en platformio.ini, cambialo tambien aqui.
+[wokwi]
+version  = 1
+firmware = '.pio/build/nano/firmware.hex'
+elf      = '.pio/build/nano/firmware.elf'
