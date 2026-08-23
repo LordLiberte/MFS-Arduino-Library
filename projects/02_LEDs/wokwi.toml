@@ -3,5 +3,5 @@
 # Si cambias el nombre del entorno en platformio.ini, cambialo tambien aqui.
 [wokwi]
 version  = 1
-firmware = '.pio/build/nano/firmware.hex'
-elf      = '.pio/build/nano/firmware.elf'
+firmware = '.pio/build/uno/firmware.hex'
+elf      = '.pio/build/uno/firmware.elf'
