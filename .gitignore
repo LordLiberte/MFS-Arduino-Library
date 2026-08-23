@@ -1,70 +1,26 @@
-# Prerequisites
-*.d
+# =============================================================================
+#  Qué NO se sube al repositorio
+# =============================================================================
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
-*.pio/
+# PlatformIO: carpeta de compilación. Pesa decenas de megas, es distinta en
+# cada ordenador y se regenera sola. Nunca se versiona.
+.pio/
 
-# Precompiled Headers
-*.gch
-*.pch
+# VS Code: solo se versiona la lista de extensiones recomendadas. El resto
+# (c_cpp_properties.json, launch.json) lo genera PlatformIO con rutas
+# absolutas de TU máquina, así que a otro no le sirve.
+**/.vscode/*
+!**/.vscode/extensions.json
 
-# Linker files
-*.ilk
+# Wokwi: la licencia de la extensión es personal e intransferible.
+.wokwi/
+wokwi-license.txt
 
-# Debugger Files
-*.pdb
+# Basura de los sistemas operativos
+Thumbs.db
+desktop.ini
+.DS_Store
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-*.so.*
-
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-
-# Build directories
-build/
-Build/
-build-*/
-
-# CMake generated files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-install_manifest.txt
-compile_commands.json
-
-# Temporary files
-*.tmp
-*.log
-*.bak
-*.swp
-
-# vcpkg
-vcpkg_installed/
-
-# debug information files
-*.dwo
-
-# test output & cache
-Testing/
-.cache/
+# NOTA: include/HardwareConfig.h SÍ se versiona a propósito, aunque lo genere
+# el script. Así el repositorio compila también en un equipo sin Python, y el
+# CI puede avisarte si se ha quedado desfasado respecto al diagram.json.

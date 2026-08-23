@@ -458,21 +458,29 @@ def run(diagram_path, out_path, check_only=False, quiet=False):
 
 
 # ---------------------------------------------------------------------------
-# Modo hook de PlatformIO
+# Punto de entrada
 # ---------------------------------------------------------------------------
-def _platformio_hook():
-    try:
-        Import("env")          # noqa: F821  (lo inyecta SCons)
-    except NameError:
-        return False
-    project = env.get("PROJECT_DIR")            # noqa: F821
-    include = env.get("PROJECT_INCLUDE_DIR")    # noqa: F821
-    run(os.path.join(project, "diagram.json"),
-        os.path.join(include, "HardwareConfig.h"))
-    return True
+#  El mismo archivo sirve para dos cosas:
+#
+#    - Ejecutado a mano desde la terminal: modo linea de comandos.
+#    - Ejecutado por PlatformIO como extra_script: modo hook.
+#
+#  Distinguirlos por __name__ no es fiable, porque SCons -el motor de
+#  compilacion que hay debajo de PlatformIO- ejecuta los scripts con un espacio
+#  de nombres propio en el que __name__ puede valer "__main__". Lo que si es
+#  inequivoco es que SCons inyecta la funcion Import() en ese espacio: si
+#  Import existe, estamos dentro de PlatformIO.
+# ---------------------------------------------------------------------------
+_EN_PLATFORMIO = ("Import" in globals()) or ("DefaultEnvironment" in globals())
 
+if _EN_PLATFORMIO:
+    Import("env")                                    # noqa: F821 (lo pone SCons)
+    _proyecto = env.get("PROJECT_DIR")               # noqa: F821
+    _include  = env.get("PROJECT_INCLUDE_DIR")       # noqa: F821
+    run(os.path.join(_proyecto, "diagram.json"),
+        os.path.join(_include, "HardwareConfig.h"))
 
-if __name__ == "__main__":
+elif __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(
         description="Genera HardwareConfig.h de CoreFSM desde el diagram.json de Wokwi.")
@@ -483,5 +491,3 @@ if __name__ == "__main__":
     ap.add_argument("-q", "--quiet", action="store_true")
     a = ap.parse_args()
     sys.exit(run(a.input, a.output, a.check, a.quiet))
-else:
-    _platformio_hook()
