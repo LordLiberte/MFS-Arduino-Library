@@ -13,6 +13,7 @@
  *    - hay que declarar los prototipos antes de usar las funciones
  * ========================================================================== */
 
+ 
 #include <Arduino.h>
 #include "HardwareConfig.h"     // tabla generada desde diagram.json
 #include "Proceso.h"
