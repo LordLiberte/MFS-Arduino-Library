@@ -2,15 +2,16 @@
 #  Compilación automática (CI)
 # -----------------------------------------------------------------------------
 #  Se ejecuta en cada push a cualquier rama y en cada pull request. Compila
-#  TODOS los proyectos de proyectos/ y todos los ejemplos de la librería.
+#  TODOS los proyectos de projects/ (o proyectos/) y todos los ejemplos de la
+#  librería.
 #
-#  Lo importante: no hay que registrar nada. Cuando creas un proyecto con
-#  nuevo_proyecto.py, el CI lo descubre solo buscando */platformio.ini dentro de
-#  proyectos/ o projects/. Por eso conviene que todos tengan la misma forma.
+#  No hay que registrar nada a mano: los proyectos se descubren solos buscando
+#  */platformio.ini. Crear una carpeta de proyecto nueva basta para que entre
+#  en el CI.
 #
-#  Para qué sirve de verdad: para que 'main siempre compila' deje de depender de
-#  que te acuerdes de comprobarlo. Si una rama rompe algo, te sale la X en rojo
-#  en GitHub antes de fusionarla.
+#  Esta versión imprime un DIAGNÓSTICO al principio de cada trabajo y vuelca el
+#  error real en el RESUMEN de la ejecución. Es decir: cuando algo falla, se ve
+#  el motivo en la primera pantalla de GitHub, sin tener que abrir los logs.
 # =============================================================================
 
 name: Compilar
@@ -21,19 +22,18 @@ on:
   pull_request:
   workflow_dispatch:          # y a mano, desde la pestaña Actions
 
-# Si empujas dos veces seguidas, cancela la ejecución anterior: no tiene sentido
-# gastar minutos compilando un commit que ya has reemplazado.
+# Si empujas dos veces seguidas a la MISMA rama, cancela la ejecución anterior.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
 
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   #  1. Averiguar qué proyectos hay
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   descubrir:
-    name: Buscar proyectos
+    name: 1 · Buscar proyectos
     runs-on: ubuntu-latest
     outputs:
       proyectos: ${{ steps.buscar.outputs.proyectos }}
@@ -41,55 +41,103 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # OJO CON LAS MAYUSCULAS: este runner es Linux, y en Linux 'Lib' y 'lib'
-      # son carpetas DISTINTAS. En Windows no, y por eso un fallo de mayusculas
-      # funciona en tu ordenador y solo se rompe aqui. Se comprueba antes de
-      # nada para que el mensaje sea claro en vez de un error de compilacion
-      # incomprensible mas adelante.
-      - name: Comprobar mayusculas de las carpetas clave
+      # ---------------------------------------------------------------------
+      #  Foto de lo que hay realmente en el repositorio.
+      #  Sirve para comparar lo que TÚ ves en Windows con lo que ve Linux.
+      # ---------------------------------------------------------------------
+      - name: Diagnóstico · qué hay en el repositorio
         run: |
-          if [ ! -d lib/CoreFSM ]; then
-            echo "ERROR: no existe lib/CoreFSM (en minusculas)."
-            echo "Esto es lo que hay en la raiz del repositorio:"
-            ls -la
+          {
+            echo "## Diagnóstico"
             echo ""
-            echo "Si la tienes como 'Lib/CoreFSM', en Windows te funciona pero"
-            echo "aqui no. Renombrala en dos pasos, que Git en Windows no"
-            echo "detecta un cambio de solo mayusculas:"
-            echo "    git mv Lib lib_tmp && git mv lib_tmp lib"
-            exit 1
+            echo "Commit: \`${{ github.sha }}\`  ·  Rama: \`${{ github.ref_name }}\`"
+            echo ""
+            echo "### Raíz del repositorio"
+            echo '```'
+            ls -la
+            echo '```'
+            echo "### Carpetas de primer y segundo nivel"
+            echo '```'
+            find . -maxdepth 2 -type d -not -path './.git*' | sort
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "--- raíz ---"; ls -la
+          echo "--- árbol ---"; find . -maxdepth 3 -not -path './.git*' | sort | head -80
+
+      # ---------------------------------------------------------------------
+      #  MAYÚSCULAS. En Linux 'Lib' y 'lib' son carpetas DISTINTAS; en Windows
+      #  no. Por eso un fallo de mayúsculas funciona en tu ordenador y solo se
+      #  rompe aquí. Se comprueba lo primero, para que el mensaje sea claro en
+      #  vez de un error de compilación incomprensible más adelante.
+      # ---------------------------------------------------------------------
+      - name: Comprobar mayúsculas de las carpetas clave
+        run: |
+          fallo=0
+          if [ ! -d lib/CoreFSM ]; then
+            {
+              echo "### ❌ No existe \`lib/CoreFSM\`"
+              echo ""
+              echo "En Linux las mayúsculas cuentan. Si la tienes como \`Lib/CoreFSM\`,"
+              echo "en Windows te funciona pero aquí no. Renómbrala en DOS pasos"
+              echo "(Git en Windows no detecta un cambio de solo mayúsculas):"
+              echo '```'
+              echo "git mv Lib lib_tmp && git mv lib_tmp lib"
+              echo "git commit -m \"Renombra Lib a lib\" && git push"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "ERROR: no existe lib/CoreFSM (en minúsculas)."
+            fallo=1
           fi
+          if [ ! -f lib/CoreFSM/src/CoreFSM.h ]; then
+            {
+              echo "### ❌ No existe \`lib/CoreFSM/src/CoreFSM.h\`"
+              echo ""
+              echo "La librería está incompleta o mal colocada. Esto es lo que hay:"
+              echo '```'
+              find lib -maxdepth 3 2>/dev/null | sort | head -40 || echo "(no existe lib/)"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "ERROR: falta lib/CoreFSM/src/CoreFSM.h"
+            fallo=1
+          fi
+          exit $fallo
 
       - id: buscar
         name: Localizar los proyectos
         run: |
-          # Acepta 'proyectos/' y 'projects/': el nombre lo elige quien monta
-          # el repositorio, no la herramienta.
+          # Acepta 'proyectos/' y 'projects/': el nombre lo elige quien monta el
+          # repositorio, no la herramienta.
           mapfile -t dirs < <(find proyectos projects -mindepth 2 -maxdepth 2 \
                                 -name platformio.ini -printf '%h\n' 2>/dev/null | sort)
           if [ ${#dirs[@]} -eq 0 ]; then
-            echo "No hay ningun proyecto todavia." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "### ⚠️ No hay ningún proyecto todavía"
+              echo ""
+              echo "Se busca \`*/platformio.ini\` dentro de \`projects/\` o \`proyectos/\`."
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "hay=false"     >> "$GITHUB_OUTPUT"
             echo "proyectos=[]"  >> "$GITHUB_OUTPUT"
           else
-            printf 'Proyectos encontrados: %d\n\n' "${#dirs[@]}" >> "$GITHUB_STEP_SUMMARY"
-            printf -- '- `%s`\n' "${dirs[@]}" >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "### Proyectos encontrados: ${#dirs[@]}"
+              printf -- '- `%s`\n' "${dirs[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
             json=$(printf '%s\n' "${dirs[@]}" | jq -R -s -c 'split("\n")[:-1]')
-            echo "hay=true"            >> "$GITHUB_OUTPUT"
-            echo "proyectos=$json"     >> "$GITHUB_OUTPUT"
+            echo "hay=true"        >> "$GITHUB_OUTPUT"
+            echo "proyectos=$json" >> "$GITHUB_OUTPUT"
           fi
 
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   #  2. Compilar cada proyecto, en paralelo y por separado
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   compilar:
-    name: ${{ matrix.proyecto }}
+    name: 2 · ${{ matrix.proyecto }}
     needs: descubrir
     if: needs.descubrir.outputs.hay == 'true'
     runs-on: ubuntu-latest
     strategy:
-      # fail-fast: false = si uno falla, los demas SIGUEN compilando. Asi ves de
-      # una sola tirada todo lo que esta roto, no solo lo primero que se rompio.
+      # fail-fast: false = si uno falla, los demás SIGUEN compilando. Así ves de
+      # una sola tirada todo lo que está roto, no solo lo primero que se rompió.
       fail-fast: false
       matrix:
         proyecto: ${{ fromJSON(needs.descubrir.outputs.proyectos) }}
@@ -116,38 +164,64 @@ jobs:
         run: pip install --upgrade platformio
 
       - name: Compilar
+        id: build
         run: |
           set -o pipefail
           pio run -d "${{ matrix.proyecto }}" 2>&1 | tee salida.txt
 
-      - name: Anotar el consumo de memoria
+      # ---------------------------------------------------------------------
+      #  Vuelca el resultado en el RESUMEN. Si ha ido bien, el consumo de
+      #  memoria. Si ha ido mal, las últimas líneas del compilador, que es
+      #  donde está el error de verdad.
+      # ---------------------------------------------------------------------
+      - name: Anotar el resultado
         if: always()
         run: |
-          {
-            echo "### ${{ matrix.proyecto }}"
-            grep -E '^(RAM|Flash):' salida.txt | sed 's/^/    /' || echo "    (sin datos)"
-          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.build.outcome }}" = "success" ]; then
+            {
+              echo "### ✅ \`${{ matrix.proyecto }}\`"
+              echo '```'
+              grep -E '^(RAM|Flash):' salida.txt || echo "(sin datos de memoria)"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "### ❌ \`${{ matrix.proyecto }}\` NO compila"
+              echo ""
+              echo "Últimas 40 líneas del compilador:"
+              echo '```'
+              tail -40 salida.txt 2>/dev/null || echo "(no hay salida: falló antes de compilar)"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # Si HardwareConfig.h cambia al compilar, es que el que hay commiteado
-      # estaba desfasado respecto al diagram.json. No rompe la compilacion, pero
-      # conviene saberlo: el repositorio esta diciendo una cosa y el esquema otra.
-      - name: Comprobar que la tabla de hardware esta al dia
+      # estaba desfasado respecto al diagram.json. No rompe la compilación, pero
+      # conviene saberlo: el repositorio dice una cosa y el esquema otra.
+      - name: Comprobar que la tabla de hardware está al día
         if: always()
         run: |
           if ! git diff --quiet -- "${{ matrix.proyecto }}/include/"; then
-            echo ":warning: **${{ matrix.proyecto }}**: \`HardwareConfig.h\` estaba desfasado respecto a \`diagram.json\`. Recompila en local y haz commit del archivo regenerado." >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "> ⚠️ **${{ matrix.proyecto }}**: \`HardwareConfig.h\` estaba desfasado"
+              echo "> respecto a \`diagram.json\`. Compila en local y haz commit del archivo"
+              echo "> regenerado."
+            } >> "$GITHUB_STEP_SUMMARY"
             git --no-pager diff -- "${{ matrix.proyecto }}/include/"
           fi
 
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
   #  3. Compilar los ejemplos de la librería
   # ---------------------------------------------------------------------------
   #  Esto vigila la LIBRERÍA, no tus proyectos. Un cambio en lib/CoreFSM/ afecta
   #  a todo a la vez, y los ejemplos son la red que avisa si has roto algo que
   #  ahora mismo no usa ninguno de tus proyectos.
-  # ---------------------------------------------------------------------------
+  #
+  #  OJO: si este trabajo sale en rojo pero el 2 sale en verde, TUS PROYECTOS
+  #  COMPILAN. Lo que falla son los ejemplos, y eso no te bloquea para trabajar.
+  # ===========================================================================
   ejemplos:
-    name: Ejemplos de la libreria
+    name: 3 · Ejemplos de la librería
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -170,19 +244,37 @@ jobs:
 
       - name: Compilar todos los ejemplos
         run: |
+          if [ ! -d lib/CoreFSM/examples ]; then
+            echo "### ⚠️ No hay carpeta \`lib/CoreFSM/examples\`, nada que compilar" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           fallos=0
+          echo "### Ejemplos" >> "$GITHUB_STEP_SUMMARY"
           for d in lib/CoreFSM/examples/*/; do
             nombre=$(basename "$d")
             echo "::group::$nombre"
-            if pio ci --board=nanoatmega328 --lib=lib/CoreFSM "$d"; then
-              echo "- OK \`$nombre\`" >> "$GITHUB_STEP_SUMMARY"
+            if pio ci --board=nanoatmega328 --lib=lib/CoreFSM "$d" > "log_$nombre.txt" 2>&1; then
+              cat "log_$nombre.txt"
+              echo "- ✅ \`$nombre\`" >> "$GITHUB_STEP_SUMMARY"
             else
-              echo "- FALLA \`$nombre\`" >> "$GITHUB_STEP_SUMMARY"
+              cat "log_$nombre.txt"
+              {
+                echo "- ❌ \`$nombre\`"
+                echo ""
+                echo "<details><summary>error de \`$nombre\`</summary>"
+                echo ""
+                echo '```'
+                tail -30 "log_$nombre.txt"
+                echo '```'
+                echo ""
+                echo "</details>"
+              } >> "$GITHUB_STEP_SUMMARY"
               fallos=$((fallos + 1))
             fi
             echo "::endgroup::"
           done
           if [ "$fallos" -gt 0 ]; then
-            echo "$fallos ejemplo(s) no compilan."
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "> $fallos ejemplo(s) no compilan. Esto afecta a la LIBRERÍA, no a tus proyectos." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
