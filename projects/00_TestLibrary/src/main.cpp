@@ -5,6 +5,8 @@
  *
  *  EL CICLO DE SCAN son las tres fases del final de este archivo, siempre en
  *  ese orden. Todo lo demas son bloques que se registran.
+ * 
+ * PRUEBA
  *
  *  RECUERDA, que aqui no estamos en el IDE de Arduino:
  *    - hay que incluir <Arduino.h> a mano
