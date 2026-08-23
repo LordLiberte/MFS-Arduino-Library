@@ -7,6 +7,7 @@
  *  ese orden. Todo lo demas son bloques que se registran.
  * 
  * PRUEBA
+ * PRUEBA 2
  *
  *  RECUERDA, que aqui no estamos en el IDE de Arduino:
  *    - hay que incluir <Arduino.h> a mano
