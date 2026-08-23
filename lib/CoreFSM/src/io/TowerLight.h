@@ -44,6 +44,15 @@ class TowerLight {
     void setRunning() { apply(OUT_OFF, OUT_OFF, OUT_ON, false); }
     void setStarting(){ apply(OUT_OFF, OUT_OFF, OUT_BLINK_SLOW, false); }
     void setIdle()    { apply(OUT_OFF, OUT_ON,  OUT_OFF, false); }
+
+    /* Esperando por causa externa: la maquina esta sana, arrancara sola en
+     * cuanto le llegue material. Ambar fijo, como la maquina en reposo: para
+     * el operario que cruza la nave, "no produce pero no esta rota". */
+    void setSuspended(){ apply(OUT_OFF, OUT_ON,  OUT_OFF, false); }
+
+    /* Esperando por causa interna: la maquina te esta reclamando. Ambar
+     * intermitente, que es lo que pide atencion sin llegar a ser alarma. */
+    void setHeld()    { apply(OUT_OFF, OUT_BLINK_SLOW, OUT_OFF, false); }
     void setPaused()  { apply(OUT_OFF, OUT_BLINK_SLOW, OUT_OFF, false); }
     void setWarning() { apply(OUT_OFF, OUT_BLINK_FAST, OUT_OFF, false); }
     void setFault()   { apply(OUT_ON,  OUT_OFF, OUT_OFF, true);  }
@@ -66,6 +75,8 @@ class TowerLight {
         case 6 /*STATE_ERROR*/:    setFault();    break;
         case 2 /*STATE_RUNNING*/:  warning ? setWarning() : setRunning(); break;
         case 3 /*STATE_PAUSED*/:   setPaused();   break;
+        case 7 /*STATE_SUSPENDED*/:setSuspended();break;
+        case 8 /*STATE_HELD*/:     setHeld();     break;
         case 1 /*STATE_STARTING*/:
         case 4 /*STATE_STOPPING*/: setStarting(); break;
         default:                   setIdle();     break;

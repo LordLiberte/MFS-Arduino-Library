@@ -139,8 +139,8 @@ static inline cfsm_time_t cfsm_elapsed(cfsm_time_t since) {
 
 /* Version de la libreria, accesible desde el codigo de usuario. */
 #define CFSM_VERSION_MAJOR  2
-#define CFSM_VERSION_MINOR  0
+#define CFSM_VERSION_MINOR  1
 #define CFSM_VERSION_PATCH  0
-#define CFSM_VERSION_STR    "2.0.0"
+#define CFSM_VERSION_STR    "2.1.0"
 
 #endif /* COREFSM_PLATFORM_H */

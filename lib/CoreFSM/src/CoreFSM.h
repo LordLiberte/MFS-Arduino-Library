@@ -3,7 +3,7 @@
 
 /* ===========================================================================
  *  CoreFSM  -  Framework de automatizacion para Arduino
- *  Version 2.0.0
+ *  Version 2.1.0
  * ---------------------------------------------------------------------------
  *  Traslada el modelo de programacion de un automata industrial a C++ sobre
  *  microcontroladores: ciclo de scan determinista, imagen de proceso de
@@ -86,6 +86,7 @@
 /* --- Diagnostico --- */
 #include "diag/Logger.h"
 #include "diag/Telemetry.h"
+#include "diag/ScanWatchdog.h"
 
 /* --- Comunicaciones --- */
 #include "comms/VisionSensor.h"
