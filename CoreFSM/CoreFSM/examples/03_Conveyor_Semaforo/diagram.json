@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "author": "Carlos Gonzalez Rubio",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-arduino-nano", "id": "nano", "top": 0, "left": 0 },
+    { "type": "wokwi-pushbutton",   "id": "Pulsador_Marcha", "top": 120, "left": 200, "attrs": { "color": "green" } },
+    { "type": "wokwi-pushbutton",   "id": "Pulsador_Pausa",  "top": 180, "left": 200, "attrs": { "color": "yellow" } },
+    { "type": "wokwi-pushbutton",   "id": "Pulsador_Rearme", "top": 240, "left": 200, "attrs": { "color": "blue" } },
+    { "type": "wokwi-slide-switch", "id": "FC_Fin_Cinta",    "top": 300, "left": 200, "attrs": {} },
+    { "type": "wokwi-led",          "id": "Luz_Roja",        "top": -80, "left": 80,  "attrs": { "color": "red" } },
+    { "type": "wokwi-led",          "id": "Luz_Amarilla",    "top": -80, "left": 130, "attrs": { "color": "yellow" } },
+    { "type": "wokwi-led",          "id": "Luz_Verde",       "top": -80, "left": 180, "attrs": { "color": "green" } },
+    { "type": "wokwi-led",          "id": "Motor_Cinta",     "top": -80, "left": 230, "attrs": { "color": "blue" } },
+    { "type": "wokwi-potentiometer","id": "AI_Consigna_Velocidad", "top": 360, "left": 200, "attrs": {} }
+  ],
+  "connections": [
+    [ "nano:2",     "Pulsador_Marcha:1.l", "green", [ "v0" ] ],
+    [ "nano:GND.1", "Pulsador_Marcha:2.l", "black", [ "v0" ] ],
+    [ "nano:3",     "Pulsador_Pausa:1.l",  "gold",  [ "v0" ] ],
+    [ "nano:GND.1", "Pulsador_Pausa:2.l",  "black", [ "v0" ] ],
+    [ "nano:5",     "Pulsador_Rearme:1.l", "blue",  [ "v0" ] ],
+    [ "nano:GND.1", "Pulsador_Rearme:2.l", "black", [ "v0" ] ],
+    [ "nano:4",     "FC_Fin_Cinta:2",      "cyan",  [ "v0" ] ],
+    [ "nano:GND.1", "FC_Fin_Cinta:1",      "black", [ "v0" ] ],
+    [ "nano:13",    "Luz_Roja:A",          "red",   [ "v0" ] ],
+    [ "nano:GND.2", "Luz_Roja:C",          "black", [ "v0" ] ],
+    [ "nano:12",    "Luz_Amarilla:A",      "orange",[ "v0" ] ],
+    [ "nano:GND.2", "Luz_Amarilla:C",      "black", [ "v0" ] ],
+    [ "nano:11",    "Luz_Verde:A",         "green", [ "v0" ] ],
+    [ "nano:GND.2", "Luz_Verde:C",         "black", [ "v0" ] ],
+    [ "nano:10",    "Motor_Cinta:A",       "blue",  [ "v0" ] ],
+    [ "nano:GND.2", "Motor_Cinta:C",       "black", [ "v0" ] ],
+    [ "nano:A0",    "AI_Consigna_Velocidad:SIG", "purple", [ "v0" ] ],
+    [ "nano:5V",    "AI_Consigna_Velocidad:VCC", "red",    [ "v0" ] ],
+    [ "nano:GND.3", "AI_Consigna_Velocidad:GND", "black",  [ "v0" ] ]
+  ]
+}

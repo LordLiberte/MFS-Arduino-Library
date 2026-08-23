@@ -1,0 +1,6 @@
+{
+  "defaults": { "debounce": 20 },
+  "pins": {
+    "4": { "name": "FC_Fin_Cinta", "role": "DI", "debounce": 5 }
+  }
+}

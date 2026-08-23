@@ -1,0 +1,53 @@
+; =============================================================================
+;  platformio.ini de ejemplo para un proyecto con CoreFSM
+; -----------------------------------------------------------------------------
+;  Copia este archivo a la raiz de tu proyecto como "platformio.ini".
+;
+;  La linea clave es extra_scripts: hace que PlatformIO ejecute el generador
+;  ANTES de compilar, de modo que HardwareConfig.h siempre esta al dia con el
+;  diagram.json. Dibujas en Wokwi, das a compilar, y el codigo ya usa los
+;  nombres y los pines nuevos.
+; =============================================================================
+
+[env:nano]
+platform      = atmelavr
+board         = nanoatmega328          ; usa nanoatmega328new si tu Nano es nuevo
+framework     = arduino
+monitor_speed = 115200
+
+lib_deps      = file://lib/CoreFSM     ; o la ruta donde tengas la libreria
+extra_scripts = pre:tools/wokwi2corefsm.py
+
+build_flags =
+  -Wall
+  ; -D CFSM_LOG_LEVEL=0        ; descomenta para quitar todas las trazas
+  ; -D CFSM_RECIPE_AXES=2      ; ajusta el tamano de las recetas
+  ; -D CFSM_RECIPE_MAX_STEPS=4
+
+
+[env:esp32]
+platform      = espressif32
+board         = esp32dev
+framework     = arduino
+monitor_speed = 115200
+lib_deps      = file://lib/CoreFSM
+extra_scripts = pre:tools/wokwi2corefsm.py
+
+
+; -----------------------------------------------------------------------------
+;  Estructura de carpetas que espera esta configuracion:
+;
+;    mi_proyecto/
+;    ├── platformio.ini
+;    ├── diagram.json           <- el esquema de Wokwi
+;    ├── corefsm.json           <- ajustes finos (opcional)
+;    ├── include/
+;    │   └── HardwareConfig.h   <- lo genera el script, no lo edites
+;    ├── src/
+;    │   ├── main.cpp
+;    │   └── MiProceso.h
+;    ├── lib/
+;    │   └── CoreFSM/
+;    └── tools/
+;        └── wokwi2corefsm.py
+; -----------------------------------------------------------------------------
