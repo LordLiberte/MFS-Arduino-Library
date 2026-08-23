@@ -64,10 +64,14 @@ class SequenceBlock : public FsmBlock {
       uint16_t    step            = 0;            /* paso activo               */
       uint16_t    lastStep        = CFSM_NO_STEP; /* paso del que se viene     */
       cfsm_time_t stepStartTime   = 0;            /* marca de entrada al paso  */
+      cfsm_time_t stepWarnTime    = 0;            /* 0 = sin aviso             */
       cfsm_time_t stepTimeout     = 0;            /* 0 = sin vigilancia        */
       cfsm_time_t cycleStartTime  = 0;            /* marca de inicio de ciclo  */
-      cfsm_time_t cycleTimeout    = 0;            /* 0 = sin vigilancia        */
-      cfsm_time_t lastCycleTimeMs = 0;            /* duracion del ultimo ciclo */
+      cfsm_time_t cycleTimeout    = 0;            /* 0 = sin vigilancia (fallo)*/
+      cfsm_time_t cycleTarget     = 0;            /* takt objetivo (solo aviso)*/
+      cfsm_time_t lastCycleTimeMs = 0;            /* ciclo anterior, PRODUCTIVO*/
+      cfsm_time_t blockedTime     = 0;            /* espera acumulada, ciclo en curso */
+      cfsm_time_t lastBlockedTime = 0;            /* espera del ciclo anterior */
       uint32_t    cycleCount      = 0;            /* piezas / ciclos completos */
       uint16_t    initialStep     = 0;            /* paso al que vuelve el reset*/
     } SC;
@@ -109,11 +113,56 @@ class SequenceBlock : public FsmBlock {
     /* -----------------------------------------------------------------------
      *  CONSULTA
      * -------------------------------------------------------------------- */
+    /* ST.errorCode es la unica fuente de verdad del fallo en un bloque de
+     * secuencia. Puedes reescribirlo desde onTransition() para traducir un
+     * codigo generico de la libreria al codigo propio de tu maquina:
+     *
+     *      void onTransition(SystemState, SystemState to) override {
+     *        if (to == STATE_ERROR && ST.errorCode == CFSM_ERR_STEP_TIMEOUT &&
+     *            _currentStep == PASO_BAJAR) ST.errorCode = ALM_CILINDRO_ATASCADO;
+     *      }
+     *
+     * "Timeout de paso" le dice al tecnico que algo tardo; "cilindro atascado"
+     * le dice donde poner la mano. */
+    uint16_t getErrorCode() const override { return ST.errorCode; }
+
     uint16_t    getStep() const        { return SC.step; }
     uint16_t    getLastStep() const    { return SC.lastStep; }
-    cfsm_time_t getTimeInStep() const  { return cfsm_elapsed(SC.stepStartTime); }
-    cfsm_time_t getCycleTime() const   { return cfsm_elapsed(SC.cycleStartTime); }
+    /* Los dos cronometros descuentan el tramo de congelacion QUE ESTA EN
+     * CURSO, no solo los ya cerrados. Sin esto, durante una pausa o una espera
+     * el tiempo seguiria corriendo a ojos de quien lo consulta y solo se
+     * corregiria al reanudar: el codigo de usuario que mira getTimeInStep()
+     * dentro de un paso veria pasar el tiempo de una pausa que, por
+     * definicion, no debe contar. */
+    cfsm_time_t getTimeInStep() const  { return descontarCongelado(SC.stepStartTime); }
+
+    /* -----------------------------------------------------------------------
+     *  LOS DOS RELOJES DEL CICLO, QUE NO SON EL MISMO
+     * -----------------------------------------------------------------------
+     *  getCycleTime()   Tiempo PRODUCTIVO del ciclo en curso. NO cuenta lo que
+     *                   la maquina pasa esperando (SUSPENDED / HELD), ni lo que
+     *                   pasa en pausa, ni el tiempo de reposo en el paso
+     *                   inicial. Es el que vigila setCycleTimeout().
+     *
+     *  getBlockedTime() Tiempo que la maquina ha pasado esperando en este
+     *                   ciclo. Es el numerador de la disponibilidad en un OEE:
+     *                   maquina sana que no produce porque le falta pieza.
+     *
+     *  getTotalCycleTime() La suma de los dos: el tiempo de reloj de pared, que
+     *                   es la cadencia real con la que salen las piezas.
+     *
+     *  Separarlos es lo que permite poner un limite duro al ciclo sin que una
+     *  espera legitima lo dispare. Un paso puede esperar lo que haga falta.
+     * -------------------------------------------------------------------- */
+    cfsm_time_t getCycleTime() const   { return descontarCongelado(SC.cycleStartTime); }
+    cfsm_time_t getBlockedTime() const {
+      cfsm_time_t v = SC.blockedTime;
+      if (_frozen && _freezeWasWait) v += cfsm_elapsed(_freezeStart);
+      return v;
+    }
+    cfsm_time_t getTotalCycleTime() const { return getCycleTime() + getBlockedTime(); }
     cfsm_time_t getLastCycleTime() const { return SC.lastCycleTimeMs; }
+    cfsm_time_t getLastBlockedTime() const { return SC.lastBlockedTime; }
     uint32_t    getCycleCount() const  { return SC.cycleCount; }
 
     /* Es el primer ciclo de scan dentro de este paso? Sirve para hacer una
@@ -127,6 +176,8 @@ class SequenceBlock : public FsmBlock {
       if (_currentState == STATE_IDLE || _currentState == STATE_STOPPED) {
         setStep(SC.initialStep);
         SC.cycleStartTime = cfsm_millis();
+        SC.blockedTime    = 0;
+        _cycleWarn        = false;
         ST.stw.done       = false;    /* empieza un ciclo nuevo */
         /* Sin fase de arranque configurada se va directo a RUNNING. Ver la
          * explicacion en FsmBlock::start(): es lo que mantiene vivos los
@@ -161,10 +212,72 @@ class SequenceBlock : public FsmBlock {
     /* Paso al que vuelve la secuencia al arrancar y al rearmar. Por defecto 0. */
     void setInitialStep(uint16_t s) { SC.initialStep = s; }
 
-    /* Vigilancia del ciclo completo, ademas de la de cada paso. Detecta el
-     * caso perverso de una secuencia que va saltando entre dos pasos sin
-     * agotar ninguno pero sin terminar nunca. */
+    /* -----------------------------------------------------------------------
+     *  LIMITE DURO DE CICLO  ->  ALARMA
+     * -----------------------------------------------------------------------
+     *  Vigila el tiempo PRODUCTIVO del ciclo. Existe para cazar un fallo que
+     *  la vigilancia de paso no puede ver: la secuencia que va rebotando entre
+     *  dos pasos sin agotar ninguno pero sin terminar nunca. Cada setStep()
+     *  reinicia el cronometro del paso, asi que ningun watchdog de paso salta;
+     *  el del ciclo si.
+     *
+     *  NO cuenta el tiempo de espera declarado con suspendWhile()/holdWhile(),
+     *  ni el reposo en el paso inicial. Puedes esperar lo que quieras.
+     * -------------------------------------------------------------------- */
     void setCycleTimeout(cfsm_time_t ms) { SC.cycleTimeout = ms; }
+
+    /* -----------------------------------------------------------------------
+     *  TAKT OBJETIVO  ->  AVISO, NUNCA ALARMA
+     * -----------------------------------------------------------------------
+     *  Que un ciclo tarde de mas es un problema de PRODUCCION, no de seguridad.
+     *  En una linea real eso no para la maquina: enciende un aviso, y el dato
+     *  se va al calculo del rendimiento. Lo que si para la maquina es que un
+     *  movimiento concreto no llegue, y de eso se encarga la vigilancia de
+     *  paso. Por eso esto levanta stw.warning y no llama a fault().
+     * -------------------------------------------------------------------- */
+    void setCycleTarget(cfsm_time_t ms) { SC.cycleTarget = ms; }
+    bool isOverTakt() const { return _cycleWarn; }
+
+    /* -----------------------------------------------------------------------
+     *  ESPERAS DECLARADAS
+     * -----------------------------------------------------------------------
+     *  Una maquina que espera no esta produciendo despacio: esta esperando. Son
+     *  dos cosas distintas y la industria las separa desde ISA-88 / PackML,
+     *  porque de esa separacion sale el calculo de rendimiento de la linea.
+     *
+     *  Mientras la espera esta declarada:
+     *    - los cronometros de paso y de ciclo se CONGELAN, asi que ningun
+     *      watchdog puede saltar por mucho que dure;
+     *    - el tiempo se acumula en getBlockedTime(), aparte del de ciclo;
+     *    - la STW dice suspended o held, de modo que el HMI, la baliza y el
+     *      maestro de linea saben POR QUE la maquina no produce;
+     *    - la logica del paso sigue corriendo, que es lo que permite volver.
+     *
+     *  Cual usar:
+     *
+     *    suspendWhile()  la causa es EXTERNA. No llega pieza, la estacion
+     *                    siguiente esta llena, el almacen esta vacio. La
+     *                    maquina esta sana y arrancara sola.
+     *
+     *    holdWhile()     la causa es INTERNA o del operario. Recarga de
+     *                    material, control de calidad, ajuste, esperar a que
+     *                    alguien pulse marcha.
+     *
+     *  Las dos devuelven true MIENTRAS hay que esperar, y el patron de uso es
+     *  siempre el mismo:
+     *
+     *      case PASO_ESPERAR_PIEZA:
+     *        cinta = false;
+     *        if (suspendWhile(!piezaPresente)) break;   // sigue esperando
+     *        setStep(PASO_COGER, 3000);                 // ya hay pieza
+     *        break;
+     *
+     *  Si dejas de llamarlas -por ejemplo porque cambiaste de paso- la maquina
+     *  vuelve sola a RUNNING al scan siguiente. No hay forma de quedarse
+     *  colgado en una espera por olvido.
+     * -------------------------------------------------------------------- */
+    bool suspendWhile(bool condition) { return waitWhile(condition, STATE_SUSPENDED); }
+    bool holdWhile(bool condition)    { return waitWhile(condition, STATE_HELD); }
 
     /* -----------------------------------------------------------------------
      *  MOTOR DE LA SECUENCIA
@@ -187,6 +300,17 @@ class SequenceBlock : public FsmBlock {
       /* --- 1. Palabra de mando ------------------------------------------ */
       processControlWord();
 
+      /* --- 1b. Liberacion automatica de la espera -----------------------
+       * _waitRequested lo levanta suspendWhile()/holdWhile() durante la
+       * logica del paso, es decir DESPUES de esta funcion. Lo que se mira
+       * aqui es, por tanto, si en el scan ANTERIOR alguien pidio seguir
+       * esperando. Si nadie lo pidio -porque la condicion se cumplio, porque
+       * se cambio de paso, o simplemente porque se dejo de llamar-, la
+       * maquina vuelve sola a produccion. Es la red de seguridad que impide
+       * quedarse colgado en una espera por un olvido. */
+      if (isWaiting() && !_waitRequested) transitionTo(STATE_RUNNING);
+      _waitRequested = false;
+
       /* --- 2. Maquina de estados de alto nivel -------------------------- */
       bool active = updateFsm();
 
@@ -203,24 +327,59 @@ class SequenceBlock : public FsmBlock {
        * haria saltar el watchdog del paso en el instante de reanudar: la
        * maquina caeria en alarma por haber estado parada, que es justo lo
        * contrario de lo que debe pasar. */
-      bool congelado = retenido || (_currentState == STATE_PAUSED);
+      bool esperando = isWaiting();
+      bool congelado = retenido || (_currentState == STATE_PAUSED) || esperando;
       if (congelado) {
-        if (!_frozen) { _frozen = true; _freezeStart = cfsm_millis(); }
+        if (!_frozen) {
+          _frozen = true; _freezeStart = cfsm_millis(); _freezeWasWait = esperando;
+        } else if (_freezeWasWait != esperando) {
+          /* Cambio el motivo de la congelacion a media parada (por ejemplo el
+           * operario pulsa pausa mientras la maquina esperaba pieza). Se cierra
+           * el tramo anterior con su etiqueta y se abre uno nuevo, para que el
+           * tiempo de espera y el de pausa no se mezclen en el mismo saco. */
+          closeFreezeChunk();
+          _freezeStart = cfsm_millis(); _freezeWasWait = esperando;
+        }
       } else if (_frozen) {
-        cfsm_time_t parado = cfsm_elapsed(_freezeStart);
-        SC.stepStartTime  += parado;    /* se desplazan las marcas de origen */
-        SC.cycleStartTime += parado;
+        closeFreezeChunk();
         _frozen = false;
       }
 
-      /* --- 5. Vigilancias de tiempo ------------------------------------- */
+      /* --- 5. Vigilancias de tiempo -------------------------------------
+       * En reposo, es decir parada en su paso inicial esperando orden, la
+       * maquina no esta dentro de ningun ciclo: la vigilancia de ciclo no
+       * aplica. Sin esta condicion, una maquina encendida y sin trabajo caeria
+       * en alarma sola al cabo de setCycleTimeout(), que es exactamente lo
+       * contrario de lo que debe pasar. */
+      bool enReposo = (SC.step == SC.initialStep);
+
       if (active && !congelado && !ST.cfgw.bypassTimer) {
-        if (isStepTimedOut()) {
+        /* Los dos cronometros se leen UNA vez. Cada lectura es una resta de 32
+         * bits, que en un AVR de 8 bits no es gratis ni en tiempo ni en flash,
+         * y aqui se consultan hasta cuatro veces seguidas. */
+        const cfsm_time_t tPaso  = getTimeInStep();
+        const cfsm_time_t tCiclo = getCycleTime();
+
+        /* 5a. Aviso de paso: primer escalon. No para la maquina, solo avisa.
+         *     Es el "va lento" antes del "no ha llegado". */
+        if (SC.stepWarnTime > 0 && !_stepWarnFired && tPaso >= SC.stepWarnTime) {
+          _stepWarnFired  = true;
+          ST.stw.stepWarn = true;
+          onStepWarning(SC.step);
+        }
+
+        /* 5b. Takt objetivo: tampoco para la maquina. */
+        if (!enReposo && SC.cycleTarget > 0 && tCiclo >= SC.cycleTarget) {
+          _cycleWarn = true;
+        }
+
+        /* 5c. Los dos limites duros, que si paran la maquina. */
+        if (SC.stepTimeout > 0 && tPaso >= SC.stepTimeout) {
           ST.stw.stepTimeout = true;
           fault(CFSM_ERR_STEP_TIMEOUT);
           active = false;
         }
-        else if (SC.cycleTimeout > 0 && getCycleTime() >= SC.cycleTimeout) {
+        else if (!enReposo && SC.cycleTimeout > 0 && tCiclo >= SC.cycleTimeout) {
           fault(CFSM_ERR_CYCLE_TIMEOUT);
           active = false;
         }
@@ -259,6 +418,11 @@ class SequenceBlock : public FsmBlock {
       out.print(getTimeInStep());
       out.print(CFSM_FSTR("ms ciclos="));
       out.print(SC.cycleCount);
+      if (SC.blockedTime || _frozen) {
+        out.print(CFSM_FSTR(" espera="));
+        out.print(getBlockedTime());
+        out.print(CFSM_FSTR("ms"));
+      }
       if (ST.errorCode != CFSM_ERR_NONE) {
         out.print(CFSM_FSTR(" ERR=0x"));
         out.print(ST.errorCode, HEX);
@@ -299,12 +463,42 @@ class SequenceBlock : public FsmBlock {
      *  que la maquina se pare y lo diga a que se quede colgada en silencio.
      * -------------------------------------------------------------------- */
     void setStep(uint16_t newStep, cfsm_time_t timeoutMs = 0) {
+      setStep(newStep, 0, timeoutMs);
+    }
+
+    /* Version de DOS ESCALONES, que es como se vigila en la industria:
+     *
+     *      setStep(PASO_BAJAR, 3000, 5000);   // aviso a 3 s, fallo a 5 s
+     *
+     *  El primer escalon no para nada: enciende stw.stepWarn, llama a
+     *  onStepWarning() y deja que la maquina siga. Sirve para ver venir la
+     *  averia -la ventosa que cada vez tarda un poco mas, el cilindro que
+     *  pierde aire- en vez de enterarte el dia que ya no llega. El segundo es
+     *  el limite duro de siempre: alarma y maquina parada.
+     *
+     *  Poner 0 en cualquiera de los dos lo desactiva. */
+    void setStep(uint16_t newStep, cfsm_time_t warnMs, cfsm_time_t faultMs) {
+      /* Un cambio de paso puede venir de dentro de una espera -es el caso
+       * normal: llega la pieza y la secuencia avanza-. Ahi la congelacion
+       * sigue abierta, y hay que cerrarla ANTES de tocar las marcas. */
+      endFreeze();
+
+      /* El reloj de ciclo arranca al ABANDONAR el paso inicial, no al arrancar
+       * la maquina. Mientras la secuencia descansa en reposo no hay ciclo que
+       * medir, y lo que se mide de mas ahi acaba disparando una alarma que no
+       * tiene ninguna causa fisica detras. */
+      if (SC.step == SC.initialStep && newStep != SC.initialStep) {
+        SC.cycleStartTime = cfsm_millis();
+      }
       if (SC.step != newStep) onStepExited(SC.step);
       SC.lastStep      = SC.step;
       SC.step          = newStep;
       SC.stepStartTime = cfsm_millis();
-      SC.stepTimeout   = timeoutMs;
+      SC.stepWarnTime  = warnMs;
+      SC.stepTimeout   = faultMs;
       ST.stw.stepTimeout = false;
+      ST.stw.stepWarn    = false;
+      _stepWarnFired   = false;
       ST.stw.done      = false;   /* el ciclo vuelve a estar en marcha       */
       _stepAuthorised  = false;   /* en modo paso a paso hay que reautorizar */
       _firstScan       = true;
@@ -314,7 +508,7 @@ class SequenceBlock : public FsmBlock {
 
     /* Repite el paso actual desde cero (reinicia su cronometro). Util para
      * reintentar una operacion sin salir del paso. */
-    void restartStep() { setStep(SC.step, SC.stepTimeout); }
+    void restartStep() { setStep(SC.step, SC.stepWarnTime, SC.stepTimeout); }
 
     /* Ha vencido el tiempo maximo del paso actual? */
     bool isStepTimedOut() const {
@@ -330,8 +524,12 @@ class SequenceBlock : public FsmBlock {
      * -------------------------------------------------------------------- */
     void completeCycle() {
       SC.cycleCount++;
-      SC.lastCycleTimeMs = getCycleTime();
-      SC.cycleStartTime  = cfsm_millis();
+      SC.lastCycleTimeMs  = getCycleTime();      /* solo tiempo productivo */
+      SC.lastBlockedTime  = getBlockedTime();    /* y aparte, lo esperado  */
+      SC.cycleStartTime   = cfsm_millis();
+      SC.blockedTime      = 0;
+      if (_frozen) _freezeStart = cfsm_millis();
+      _cycleWarn          = false;
 
       if (ST.cfgw.stop) {
         ST.cfgw.stop = false;
@@ -358,6 +556,11 @@ class SequenceBlock : public FsmBlock {
      * bloquear la CPU. Este es el error que mas veces se comete al empezar. */
     virtual void onStepEntered(uint16_t step) { CFSM_UNUSED(step); }
 
+    /* Se ejecuta UNA vez cuando el paso se pasa de su tiempo de AVISO, si lo
+     * tiene. La maquina sigue produciendo. Es el sitio donde encender el
+     * ambar, apuntar la deriva o mandar el aviso al maestro de linea. */
+    virtual void onStepWarning(uint16_t step) { CFSM_UNUSED(step); }
+
     /* Se ejecuta UNA vez al abandonar un paso. Util para apagar de forma
      * fiable lo que ese paso encendio, sin tener que acordarse de hacerlo en
      * cada una de las transiciones de salida. */
@@ -368,8 +571,54 @@ class SequenceBlock : public FsmBlock {
     bool _firstScan      = true;    /* primer ciclo dentro del paso actual    */
     bool _firstScanSeen  = false;   /* ya corrio un scan de logica en el paso */
     bool _frozen         = false;   /* relojes detenidos (pausa o retencion)  */
+    bool _freezeWasWait  = false;   /* la congelacion en curso es una espera  */
+    bool _waitRequested  = false;   /* alguien pidio esperar en este scan     */
+    bool _stepWarnFired  = false;   /* el aviso del paso ya se lanzo          */
+    bool _cycleWarn      = false;   /* el ciclo se paso del takt objetivo     */
     bool _lastHoldReq    = false;   /* nivel anterior de holdRequest          */
     cfsm_time_t _freezeStart = 0;
+
+    /* Tiempo transcurrido desde una marca, sin contar la congelacion en curso. */
+    cfsm_time_t descontarCongelado(cfsm_time_t desde) const {
+      cfsm_time_t v = cfsm_elapsed(desde);
+      if (_frozen) {
+        cfsm_time_t parado = cfsm_elapsed(_freezeStart);
+        v = (v > parado) ? (v - parado) : 0;
+      }
+      return v;
+    }
+
+    /* Cierra el tramo de congelacion en curso: desplaza las marcas de origen
+     * de los cronometros hacia delante -de modo que el tiempo parado no cuente-
+     * y, si el motivo era una espera, lo suma al contador de espera. */
+    void closeFreezeChunk() {
+      cfsm_time_t parado = cfsm_elapsed(_freezeStart);
+      SC.stepStartTime  += parado;
+      SC.cycleStartTime += parado;
+      if (_freezeWasWait) SC.blockedTime += parado;
+    }
+
+    /* Termina la congelacion AHORA, contabilizandola. Hay que llamarlo antes
+     * de tocar SC.stepStartTime o SC.cycleStartTime desde fuera del motor: si
+     * no, closeFreezeChunk() sumaria despues el tramo entero sobre una marca
+     * que ya se habia puesto a cero, y el cronometro se iria al futuro. Es
+     * exactamente lo que pasa al hacer setStep() para salir de una espera. */
+    void endFreeze() {
+      if (!_frozen) return;
+      closeFreezeChunk();
+      _frozen = false;
+    }
+
+    /* Motor comun de suspendWhile() y holdWhile(). */
+    bool waitWhile(bool condition, SystemState waitState) {
+      if (condition) {
+        _waitRequested = true;
+        if (_currentState == STATE_RUNNING) transitionTo(waitState);
+        return isWaiting();
+      }
+      if (_currentState == waitState) transitionTo(STATE_RUNNING);
+      return false;
+    }
 
     /* Traduce los bits de la palabra de mando a comandos y los consume.
      * Consumir el bit (ponerlo a false) es lo que convierte una senal
@@ -424,10 +673,17 @@ class SequenceBlock : public FsmBlock {
       ST.stw.running    = (_currentState == STATE_RUNNING);
       ST.stw.paused     = (_currentState == STATE_PAUSED);
       ST.stw.fault      = (_currentState == STATE_ERROR);
+      ST.stw.suspended  = (_currentState == STATE_SUSPENDED);
+      ST.stw.held       = (_currentState == STATE_HELD);
       ST.stw.busy       = (_currentState == STATE_RUNNING  ||
                            _currentState == STATE_STARTING ||
-                           _currentState == STATE_STOPPING);
+                           _currentState == STATE_STOPPING ||
+                           isWaiting());
       ST.stw.waitingAck = handshake.statusDone && !handshake.cmdAck;
+      /* El aviso general es la union de los avisos concretos. Se recalcula
+       * entero cada scan para que no se quede enganchado cuando su causa
+       * desaparece: un bit de aviso que no baja solo deja de significar nada. */
+      ST.stw.warning    = ST.stw.stepWarn || _cycleWarn;
       /* 'done' no se toca aqui: lo levanta completeCycle() y lo borra
        * setStep() en cuanto la maquina vuelve a avanzar. */
     }

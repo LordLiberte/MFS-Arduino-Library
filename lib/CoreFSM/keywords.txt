@@ -251,3 +251,33 @@ CFSM_TABLE_DI	LITERAL1
 CFSM_TABLE_DO	LITERAL1
 CFSM_TABLE_AI	LITERAL1
 CFSM_DEFINE_HARDWARE	LITERAL1
+
+#######################################
+# CoreFSM 2.1 - Esperas, ritmo y scan
+#######################################
+
+ScanWatchdog	KEYWORD1
+suspendWhile	KEYWORD2
+holdWhile	KEYWORD2
+isWaiting	KEYWORD2
+setCycleTarget	KEYWORD2
+isOverTakt	KEYWORD2
+getBlockedTime	KEYWORD2
+getLastBlockedTime	KEYWORD2
+getTotalCycleTime	KEYWORD2
+onStepWarning	KEYWORD2
+headroomPct	KEYWORD2
+overruns	KEYWORD2
+isOverrun	KEYWORD2
+worstOverrunUs	KEYWORD2
+resetStats	KEYWORD2
+enableHardwareWatchdog	KEYWORD2
+disableHardwareWatchdog	KEYWORD2
+setSuspended	KEYWORD2
+setHeld	KEYWORD2
+STATE_SUSPENDED	LITERAL1
+STATE_HELD	LITERAL1
+CFSM_ERR_SCAN_OVERRUN	LITERAL1
+STW_BIT_SUSPENDED	LITERAL1
+STW_BIT_HELD	LITERAL1
+STW_BIT_STEP_WARN	LITERAL1

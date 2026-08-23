@@ -100,7 +100,15 @@ union StatusWord {
     bool busy         : 1;  /* Bit 7: ocupada; no acepta ordenes nuevas.          */
     bool waitingAck   : 1;  /* Bit 8: espera el acuse de la estacion siguiente.   */
     bool warning      : 1;  /* Bit 9: aviso no bloqueante (mantenimiento, deriva).*/
-    uint16_t reserved : 6;  /* Bits 10..15: libres.                               */
+    bool suspended    : 1;  /* Bit 10: parada por causa EXTERNA (falta pieza, la
+                               siguiente estacion llena). La maquina esta sana y
+                               lista; se reanuda sola cuando la causa se va.     */
+    bool held         : 1;  /* Bit 11: parada por causa INTERNA o por decision
+                               del operario (recarga, control de calidad). Se
+                               reanuda cuando la condicion propia se cumple.     */
+    bool stepWarn     : 1;  /* Bit 12: el paso lleva mas del tiempo de aviso,
+                               pero aun no del de fallo. Aun produce.            */
+    uint16_t reserved : 3;  /* Bits 13..15: libres.                               */
   };
 };
 
@@ -114,6 +122,9 @@ union StatusWord {
 #define STW_BIT_BUSY           0x0080
 #define STW_BIT_WAITING_ACK    0x0100
 #define STW_BIT_WARNING        0x0200
+#define STW_BIT_SUSPENDED      0x0400
+#define STW_BIT_HELD           0x0800
+#define STW_BIT_STEP_WARN      0x1000
 
 /* ---------------------------------------------------------------------------
  *  3. Palabras de accionamiento (motor / variador)
@@ -178,6 +189,7 @@ enum CfsmError : uint16_t {
   CFSM_ERR_RECIPE_INVALID  = 0x0008,  /* receta ausente, vacia o corrupta        */
   CFSM_ERR_CONFIG_CRC      = 0x0009,  /* configuracion en memoria no volatil mal */
   CFSM_ERR_NOT_HOMED       = 0x000A,  /* se pidio automatico sin hacer el home   */
+  CFSM_ERR_SCAN_OVERRUN    = 0x000B,  /* el ciclo de scan se paso del limite     */
   CFSM_ERR_USER_BASE       = 0x8000   /* a partir de aqui, errores de tu maquina */
 };
 
@@ -195,6 +207,7 @@ inline const __FlashStringHelper* cfsmErrorText(uint16_t code) {
     case CFSM_ERR_RECIPE_INVALID: return CFSM_FSTR("Receta no valida");
     case CFSM_ERR_CONFIG_CRC:     return CFSM_FSTR("CRC de configuracion erroneo");
     case CFSM_ERR_NOT_HOMED:      return CFSM_FSTR("Maquina sin referenciar (home)");
+    case CFSM_ERR_SCAN_OVERRUN:   return CFSM_FSTR("Scan demasiado largo");
     default:                      return CFSM_FSTR("Error de aplicacion");
   }
 }

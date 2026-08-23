@@ -52,7 +52,25 @@ enum SystemState : uint8_t {
                           punto de la secuencia: se puede reanudar.           */
   STATE_STOPPING = 4,  /* Secuencia ordenada de parada (frenar, replegar...). */
   STATE_STOPPED  = 5,  /* Parada completada. Transita solo a IDLE.            */
-  STATE_ERROR    = 6   /* Alarma. Retenido hasta que alguien rearme.          */
+  STATE_ERROR    = 6,  /* Alarma. Retenido hasta que alguien rearme.          */
+
+  /* --- Los dos estados de ESPERA, tomados de PackML -----------------------
+   * No son fallos, y no son pausa. Son el estado de una maquina sana que no
+   * puede producir ahora mismo. Separarlos de RUNNING es lo que permite que
+   * un paso pueda esperar indefinidamente sin que salte ningun watchdog, y a
+   * la vez que el tiempo perdido se contabilice aparte del tiempo de ciclo.
+   *
+   * La logica del paso SIGUE ejecutandose en estos dos estados; lo que se
+   * congela son los cronometros. Tiene que ser asi, porque es esa logica la
+   * que vuelve a evaluar la condicion de espera en cada scan.               */
+  STATE_SUSPENDED = 7, /* Espera por causa EXTERNA a la maquina: no llega
+                          pieza, la estacion siguiente esta llena. La maquina
+                          esta lista y sana. Se reanuda SOLA en cuanto la
+                          condicion desaparece.                              */
+  STATE_HELD      = 8  /* Espera por causa INTERNA o por decision del
+                          operario: recarga de material, control de calidad,
+                          ajuste. Se reanuda cuando la condicion propia se
+                          cumple.                                            */
 };
 
 /* Nombre legible del estado, en memoria de programa. */
@@ -65,6 +83,8 @@ inline const __FlashStringHelper* cfsmStateName(uint8_t s) {
     case STATE_STOPPING: return CFSM_FSTR("STOPPING");
     case STATE_STOPPED:  return CFSM_FSTR("STOPPED");
     case STATE_ERROR:    return CFSM_FSTR("ERROR");
+    case STATE_SUSPENDED:return CFSM_FSTR("SUSPENDED");
+    case STATE_HELD:     return CFSM_FSTR("HELD");
     default:             return CFSM_FSTR("???");
   }
 }
@@ -84,16 +104,33 @@ class FsmBlock : public BlockBase {
     SystemState previousState() const { return _previousState; }
 
     bool isIdle()    const { return _currentState == STATE_IDLE; }
-    bool isRunning() const { return _currentState == STATE_RUNNING; }
     bool isPaused()  const { return _currentState == STATE_PAUSED; }
     bool isFaulted() const override { return _currentState == STATE_ERROR; }
 
-    /* Un bloque esta "activo" si su logica de proceso debe ejecutarse.
-     * Es el chequeo que va al principio de todo update() de bloque hijo. */
-    bool isActive()  const { return _currentState == STATE_RUNNING; }
+    /* OJO A LA DIFERENCIA ENTRE ESTAS DOS, que es la que mas se confunde:
+     *
+     *   isRunning()  -> PRODUCIENDO. Estricto: solo RUNNING. Es el que quieres
+     *                   para encender el piloto verde, para decidir si aceptas
+     *                   una receta nueva o para el bit running de la STW.
+     *
+     *   isActive()   -> LA LOGICA DEL PASO DEBE EJECUTARSE. Incluye ademas los
+     *                   dos estados de espera, porque una maquina suspendida
+     *                   sigue teniendo que evaluar su condicion de espera en
+     *                   cada scan; si no, no saldria nunca de ella. */
+    bool isRunning() const { return _currentState == STATE_RUNNING; }
+    bool isWaiting() const { return _currentState == STATE_SUSPENDED ||
+                                    _currentState == STATE_HELD; }
+    bool isActive()  const { return _currentState == STATE_RUNNING || isWaiting(); }
 
-    uint16_t getErrorCode() const { return _errorCode; }
-    const __FlashStringHelper* getErrorText() const { return cfsmErrorText(_errorCode); }
+    /* Virtual a proposito. Un SequenceBlock guarda su codigo de error dentro
+     * de ST, que es la estructura que ve el HMI y la que imprimen describe() y
+     * el StepTracer. Si este getter devolviera siempre la copia interna, un
+     * bloque que traduce en onTransition() un codigo generico de la libreria a
+     * uno propio de su maquina acabaria diciendo una cosa por la consola y
+     * otra por getErrorCode(). Dos verdades para el mismo dato es justo lo que
+     * hace que nadie se fie del diagnostico. */
+    virtual uint16_t getErrorCode() const { return _errorCode; }
+    const __FlashStringHelper* getErrorText() const { return cfsmErrorText(getErrorCode()); }
 
     /* -----------------------------------------------------------------------
      *  COMANDOS
@@ -125,7 +162,8 @@ class FsmBlock : public BlockBase {
     void stop() override {
       if (_currentState == STATE_RUNNING  ||
           _currentState == STATE_STARTING ||
-          _currentState == STATE_PAUSED) {
+          _currentState == STATE_PAUSED   ||
+          isWaiting()) {
         transitionTo(STATE_STOPPING);
       }
     }
@@ -134,7 +172,10 @@ class FsmBlock : public BlockBase {
      * secuencia: al reanudar se continua exactamente donde estaba. Es el
      * boton amarillo de una maquina real. */
     void hold() override {
-      if (_currentState == STATE_RUNNING) transitionTo(STATE_PAUSED);
+      /* Se puede pausar tambien desde una espera: el operario que pulsa pausa
+       * mientras la maquina aguarda pieza espera que la maquina quede en
+       * pausa, no que le ignoren el boton. */
+      if (_currentState == STATE_RUNNING || isWaiting()) transitionTo(STATE_PAUSED);
     }
 
     void resume() override {
@@ -212,7 +253,10 @@ class FsmBlock : public BlockBase {
         default:
           break;
       }
-      return _currentState == STATE_RUNNING;
+      /* Devuelve true tambien en los dos estados de espera: la logica del paso
+       * tiene que seguir corriendo para poder reevaluar la condicion. Quien
+       * congela los cronometros y silencia los watchdogs es updateSequence(). */
+      return isActive();
     }
 
   protected:

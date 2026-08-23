@@ -1,4 +1,4 @@
-# CoreFSM 2.0
+# CoreFSM 2.1
 
 **Framework de automatización para Arduino.** Traslada el modelo de programación de
 un autómata industrial —ciclo de scan determinista, imagen de proceso, bloques
@@ -17,13 +17,14 @@ Sin memoria dinámica. Sin `delay()`. Sin dependencias externas.
 3. [La idea central: el ciclo de scan](#3-la-idea-central-el-ciclo-de-scan)
 4. [Las tres capas](#4-las-tres-capas)
 5. [Tu primer bloque, paso a paso](#5-tu-primer-bloque-paso-a-paso)
-6. [Referencia rápida](#6-referencia-rápida)
-7. [Wokwi como única fuente de verdad](#7-wokwi-como-única-fuente-de-verdad)
-8. [Recetas](#8-recetas)
-9. [Diagnóstico](#9-diagnóstico)
-10. [Consumo de memoria](#10-consumo-de-memoria)
-11. [Errores frecuentes](#11-errores-frecuentes)
-12. [Mapa de archivos](#12-mapa-de-archivos)
+6. [Los tres relojes: scan, ciclo y espera](#6-los-tres-relojes-scan-ciclo-y-espera)
+7. [Referencia rápida](#7-referencia-rápida)
+8. [Wokwi como única fuente de verdad](#8-wokwi-como-única-fuente-de-verdad)
+9. [Recetas](#9-recetas)
+10. [Diagnóstico](#10-diagnóstico)
+11. [Consumo de memoria](#11-consumo-de-memoria)
+12. [Errores frecuentes](#12-errores-frecuentes)
+13. [Mapa de archivos](#13-mapa-de-archivos)
 
 ---
 
@@ -384,19 +385,185 @@ el ciclo miles de veces por segundo. Es el fallo número uno.
 
 ---
 
-## 6. Referencia rápida
+## 6. Los tres relojes: scan, ciclo y espera
+
+Si solo te llevas una idea de todo este documento, que sea esta: **en
+automatización la palabra "ciclo" significa dos cosas distintas**, y confundirlas
+es el origen de la mayoría de las alarmas que nadie entiende.
+
+| Reloj | Qué mide | Si se pasa | Quién lo vigila |
+|---|---|---|---|
+| **Scan** | Una pasada del programa: leer, calcular, escribir | Fallo de CPU | `ScanWatchdog` |
+| **Ciclo de producción** | De pieza a pieza, solo tiempo **productivo** | Aviso, o alarma si es un límite duro | `SequenceBlock` |
+| **Espera** | Máquina sana que no puede producir | **Nada** | `SequenceBlock` |
+
+### 6.1 El watchdog de scan
+
+Es el watchdog de un PLC. En un S7 se llama vigilancia del tiempo de ciclo,
+viene de fábrica en unos 150 ms, y si el programa se pasa la CPU se va a STOP.
+Aquí no había nada equivalente, y en un Arduino hace más falta que en un PLC:
+nada te impide meter un `delay()` en mitad de un paso, dejar un
+`Serial.println()` dentro del `switch`, o llamar a un ultrasonidos que sin eco
+se come 25 ms él solo.
+
+Cuando el scan se alarga la máquina no se para: **se vuelve mentirosa**. Los
+antirrebotes muestrean más despacio y empiezan a perder flancos, los tiempos de
+paso pierden resolución, y un pulsador rápido deja de detectarse a veces. Es el
+tipo de fallo más difícil de encontrar que existe, porque no da error: da
+comportamiento raro e intermitente.
+
+```cpp
+ScanWatchdog scan(20);            // 20 ms de scan máximo
+
+void loop() {
+  scan.begin();
+  HW.readInputs();
+  manager.updateAll();
+  HW.writeOutputs();
+  scan.end();
+}
+```
+
+Y cuando quieras saber cómo va de holgado:
+
+```
+scan.report(Serial);
+>> scan ult=1832us med=1790us max=4120us limite=20ms excesos=0 n=54211
+```
+
+Mirar ese `max` de vez en cuando dice más del estado real de un programa que
+cualquier otra cosa. Si se acerca al límite, el programa te está pidiendo que
+repartas el trabajo en más scans.
+
+`enableHardwareWatchdog()` engancha además el watchdog físico del AVR, que
+resetea la placa si el programa se cuelga de verdad. **Nace apagado y no se
+activa solo**, por un motivo serio: en placas con el bootloader antiguo —muchos
+Nano clónicos anteriores a 2018— un reset por watchdog deja la placa en un bucle
+de reinicio del que no se sale ni cargando otro programa. Lee el aviso completo
+en `diag/ScanWatchdog.h` antes de usarlo.
+
+### 6.2 Esperar no es ir lento
+
+Una máquina parada puede estarlo por tres motivos muy distintos, y meterlos en
+el mismo saco es lo que hace que las alarmas dejen de significar algo:
+
+1. Está **averiada** → alarma. Alguien tiene que venir. Baliza roja.
+2. Está **esperando** → no es alarma. Está sana. Baliza ámbar.
+3. Va **lenta pero produce** → aviso. No para nada. Ámbar intermitente.
+
+La separación viene de PackML (ISA-TR88.00.02), el modelo de estados de máquina
+de OMAC, y `SequenceBlock` toma de él sus dos estados de espera:
+
+| Estado | Causa | Cómo sale |
+|---|---|---|
+| `STATE_SUSPENDED` | **Externa**: no llega pieza, la estación siguiente está llena | Sola, cuando la condición desaparece |
+| `STATE_HELD` | **Interna** o del operario: recargar, control de calidad, ajuste | Cuando se cumple la condición propia |
+
+Se declaran dentro del paso, y devuelven `true` mientras haya que esperar:
+
+```cpp
+case PASO_ESPERA_BOTE:
+  valvula = false;
+  if (suspendWhile(!botePresente)) break;    // causa externa
+  setStep(PASO_LLENAR, 2500, 4000);
+  break;
+
+case PASO_RECARGA:
+  if (holdWhile(!acuseRecarga)) break;       // causa interna
+  setStep(PASO_EXPULSAR);
+  break;
+```
+
+Mientras la espera está declarada, los cronómetros de paso y de ciclo se
+**congelan**, así que ningún watchdog puede saltar por mucho que dure; el tiempo
+se acumula aparte en `getBlockedTime()`; la STW dice `suspended` o `held`, de
+modo que el HMI, la baliza y el maestro de línea saben *por qué* la máquina no
+produce; y la lógica del paso sigue corriendo, que es justo lo que permite
+volver. Si dejas de llamarlas, la máquina vuelve sola a `RUNNING` al scan
+siguiente: no hay forma de quedarse colgado en una espera por olvido.
+
+También descansar en el paso inicial está exento, y eso no hay que declararlo:
+una máquina encendida sin trabajo no está dentro de ningún ciclo.
+
+### 6.3 Vigilar un paso en dos escalones
+
+Un solo umbral obliga a elegir entre avisar pronto (y llenarte de falsas
+alarmas) o parar tarde. Los sistemas industriales usan dos, y `setStep()`
+también:
+
+```cpp
+setStep(PASO_BAJAR, 3000, 5000);   // aviso a los 3 s, alarma a los 5 s
+setStep(PASO_BAJAR, 5000);         // solo alarma, como siempre
+setStep(PASO_BAJAR);               // paso libre, sin vigilancia
+```
+
+El primer escalón no para nada: enciende `stw.stepWarn` y llama una sola vez a
+`onStepWarning()`. Sirve para **ver venir** la avería —la ventosa que cada vez
+tarda un poco más, el cilindro que pierde aire— en vez de enterarte el día que
+ya no llega.
+
+### 6.4 El ciclo de producción: avisar y parar
+
+```cpp
+setCycleTarget(6000);     // takt objetivo -> AVISO, nunca alarma
+setCycleTimeout(15000);   // límite duro   -> ALARMA
+```
+
+Que un ciclo tarde de más es un problema de **producción**, no de seguridad: en
+una línea real eso enciende un aviso y se apunta para el rendimiento, no para la
+máquina. Lo que sí la para es que un movimiento concreto no llegue, y de eso se
+encarga la vigilancia de paso.
+
+Entonces, ¿para qué sirve el límite duro de ciclo, si cada paso ya tiene el
+suyo? Para cazar un fallo que la vigilancia de paso **no puede ver**: la
+secuencia que va rebotando entre dos pasos sin agotar ninguno pero sin terminar
+nunca. Cada `setStep()` reinicia el cronómetro del paso, así que ningún watchdog
+de paso salta jamás; el del ciclo sí.
+
+Y al cerrar cada pieza tienes los dos tiempos por separado, que es de donde sale
+la disponibilidad de un OEE:
+
+```cpp
+maquina.getLastCycleTime()     // productivo
+maquina.getLastBlockedTime()   // esperando
+maquina.getTotalCycleTime()    // reloj de pared: la cadencia real
+```
+
+---
+
+## 7. Referencia rápida
 
 ### Secuencias (`SequenceBlock`)
 
 | Método | Qué hace |
 |---|---|
 | `updateSequence()` | Motor de la secuencia. **Primera línea de tu `update()`**. Devuelve `false` si no toca ejecutar pasos. |
-| `setStep(paso, timeoutMs)` | Cambia de paso, reinicia su cronómetro y arma la vigilancia. `0` = sin vigilancia. |
+| `setStep(paso, faultMs)` | Cambia de paso, reinicia su cronómetro y arma la vigilancia. `0` = sin vigilancia. |
+| `setStep(paso, warnMs, faultMs)` | Igual, con dos escalones: el primero avisa, el segundo para. |
 | `getTimeInStep()` | Milisegundos en el paso actual. Es tu temporizador no bloqueante. |
 | `restartStep()` | Reintenta el paso actual desde cero. |
 | `completeCycle()` | Cierra el ciclo: cuenta la pieza, mide la duración, encadena o para. |
-| `getCycleCount()` / `getLastCycleTime()` | Producción y tiempo de ciclo. |
+| `suspendWhile(cond)` | Espera por causa **externa**. `true` mientras haya que esperar. Congela los relojes. |
+| `holdWhile(cond)` | Espera por causa **interna** o del operario. Igual, pero pide intervención. |
+| `isWaiting()` | ¿Está la máquina en una de las dos esperas? |
+| `setCycleTimeout(ms)` | Límite duro del ciclo **productivo** → alarma. Caza la secuencia que no termina nunca. |
+| `setCycleTarget(ms)` | Takt objetivo → **aviso**, nunca alarma. `isOverTakt()` lo consulta. |
+| `getCycleCount()` / `getLastCycleTime()` | Producción y tiempo de ciclo productivo. |
+| `getBlockedTime()` / `getLastBlockedTime()` | Tiempo esperando, contado aparte. Es el dato del OEE. |
+| `getTotalCycleTime()` | Productivo + espera: la cadencia real de reloj de pared. |
+| `onStepWarning(paso)` | Hook del primer escalón de la vigilancia. Se llama una vez, no para la máquina. |
 | `handshake` | Interfaz de traspaso a la estación vecina. |
+
+### Watchdog de scan (`ScanWatchdog`)
+
+| Método | Qué hace |
+|---|---|
+| `begin()` / `end()` | Primera y última línea del `loop()`. |
+| `lastUs()` `maxUs()` `avgUs()` | Duración del scan. `max` es el que importa. |
+| `overruns()` / `isOverrun()` | Cuántas veces se pasó del límite, y si acaba de pasar. |
+| `headroomPct()` | Margen que queda sobre el límite. Por debajo del 20 %, reparte el trabajo. |
+| `report(Serial)` | Vuelca todo de una línea. |
+| `enableHardwareWatchdog()` | Watchdog físico del AVR. **Lee el aviso antes de usarlo.** |
 
 ### Estados de máquina
 
@@ -404,6 +571,10 @@ el ciclo miles de veces por segundo. Es el fallo número uno.
 IDLE ──start()──▶ STARTING ──▶ RUNNING ──hold()──▶ PAUSED ──resume()──┐
  ▲                                │  ▲                                 │
  │                                │  └─────────────────────────────────┘
+ │                                │
+ │                                ├──suspendWhile(c)──▶ SUSPENDED  (causa externa)
+ │                                └──holdWhile(c)─────▶ HELD       (causa interna)
+ │                                     ambos vuelven solos a RUNNING
  └── STOPPED ◀── STOPPING ◀──stop()┘
 
   Desde cualquier estado:  fault(código) ──▶ ERROR ──reset()──▶ IDLE
@@ -411,6 +582,12 @@ IDLE ──start()──▶ STARTING ──▶ RUNNING ──hold()──▶ PAU
 
 `stop()` es una parada ordenada que termina el ciclo. `hold()` congela el paso y
 permite reanudar donde estaba. `abort()` corta en seco.
+
+`SUSPENDED` y `HELD` **no son pausa ni avería**: son una máquina sana que no
+puede producir ahora. La lógica del paso sigue ejecutándose en ellos —tiene que
+hacerlo, es la que reevalúa la condición—, pero los cronómetros están
+congelados. Ojo a la diferencia entre `isRunning()`, que es estricto y solo mira
+`RUNNING`, e `isActive()`, que incluye las dos esperas.
 
 ### Bloques IEC 61131-3
 
@@ -466,7 +643,7 @@ c4.drive(vx, vy, w);        // vy solo tiene sentido con ruedas mecanum
 
 ---
 
-## 7. Wokwi como única fuente de verdad
+## 8. Wokwi como única fuente de verdad
 
 El error más caro de una puesta en marcha no es un fallo de lógica: es que el
 plano diga una cosa, el cable esté en otro borne y el software apunte a un
@@ -553,7 +730,7 @@ mientras se compila. De ahí que sea un script de Python.
 
 ---
 
-## 8. Recetas
+## 9. Recetas
 
 Sin recetas, la secuencia y los datos están mezclados:
 
@@ -597,7 +774,7 @@ Ver **Ejemplo 5**.
 
 ---
 
-## 9. Diagnóstico
+## 10. Diagnóstico
 
 ### Trazador de pasos
 
@@ -676,20 +853,30 @@ contacto flojo que falla una vez al día) sería invisible para siempre.
 
 ---
 
-## 10. Consumo de memoria
+## 11. Consumo de memoria
 
 Medido con `avr-size` sobre un Arduino Nano (ATmega328P: 30 KB de flash útiles,
 2 KB de RAM). Programas completos, ya enlazados:
 
 | Ejemplo | Flash | RAM |
 |---|---|---|
-| 01 Primer bloque | 8,3 KB (25 %) | 463 B (23 %) |
-| 02 Proceso de soldadura | 11,2 KB (34 %) | 792 B (39 %) |
-| 03 Cinta + baliza + tabla Wokwi | 12,4 KB (38 %) | 943 B (46 %) |
-| 04 Dos estaciones con handshake | 11,9 KB (36 %) | 937 B (46 %) |
-| 05 Recetas y configuración | 16,8 KB (51 %) | 1039 B (51 %) |
-| 06 Robot de 4 ruedas | 12,5 KB (38 %) | 697 B (34 %) |
-| 07 Seguimiento visual | 13,3 KB (41 %) | 840 B (41 %) |
+| 01 Primer bloque | 9,2 KB (30 %) | 489 B (23 %) |
+| 02 Proceso de soldadura | 12,3 KB (40 %) | 822 B (40 %) |
+| 03 Cinta + baliza + tabla Wokwi | 13,5 KB (44 %) | 973 B (47 %) |
+| 04 Dos estaciones con handshake | 12,8 KB (42 %) | 995 B (48 %) |
+| 05 Recetas y configuración | 17,4 KB (58 %) | 1069 B (52 %) |
+| 06 Robot de 4 ruedas | 13,7 KB (45 %) | 727 B (35 %) |
+| 07 Seguimiento visual | 14,6 KB (48 %) | 870 B (42 %) |
+| 08 Esperas y ritmo | 12,9 KB (43 %) | 833 B (40 %) |
+
+**Lo que costó la 2.1.** Separar el tiempo de espera del productivo no es
+gratis: son unos **+1,5 KB de flash y +26 B de RAM por programa** respecto a la
+2.0. La mayor parte se va en aritmética de 32 bits, que en un micro de 8 bits no
+es barata, y unos 0,5 KB corresponden a los dos avisos blandos (el escalón de
+aviso del paso y el takt objetivo). Se valoró dejarlos detrás de un `#define`
+para poder quitarlos, y se descartó: medio kilobyte no justifica llenar de
+compilación condicional una librería cuya principal virtud es que se lee. El
+ejemplo más pesado sigue por debajo del 60 % de un Nano.
 
 Coste aproximado por elemento en RAM:
 
@@ -718,7 +905,7 @@ Coste aproximado por elemento en RAM:
 
 ---
 
-## 11. Errores frecuentes
+## 12. Errores frecuentes
 
 **El programa arranca solo, sin pulsar nada**
 Estás usando el nivel donde tocaba el flanco. Usa `hasRisen()`, no
@@ -758,7 +945,7 @@ Calibra `msGiro90`. Para precisión de verdad hacen falta encoders.
 
 ---
 
-## 12. Mapa de archivos
+## 13. Mapa de archivos
 
 ```
 CoreFSM/
@@ -811,7 +998,8 @@ CoreFSM/
 │   │
 │   ├── diag/
 │   │   ├── Logger.h              trazas por niveles, desactivables
-│   │   └── Telemetry.h           trazador, CSV, consola de mantenimiento
+│   │   ├── Telemetry.h           trazador, CSV, consola de mantenimiento
+│   │   └── ScanWatchdog.h        vigilancia del tiempo de ciclo de scan
 │   │
 │   └── comms/
 │       └── VisionSensor.h        cámara por serie + servocontrol visual
@@ -827,7 +1015,8 @@ CoreFSM/
     ├── 04_DosEstaciones_Handshake/ dos estaciones coordinadas
     ├── 05_Recetas_y_Config/        recetas, EEPROM y teach-in
     ├── 06_Robot_4Ruedas/           coche con evitación de obstáculos
-    └── 07_Vision_Seguimiento/      seguimiento visual en lazo cerrado
+    ├── 07_Vision_Seguimiento/      seguimiento visual en lazo cerrado
+    └── 08_Esperas_y_Ritmo/         esperas, takt objetivo y watchdog de scan
 ```
 
 ---
@@ -837,16 +1026,31 @@ CoreFSM/
 La librería no es solo "compila y parece que va". Se ha comprobado así:
 
 **Compilación limpia**
-Los siete ejemplos compilan con `avr-g++ -Wall -Wextra` para ATmega328P sin un
-solo aviso, y enlazan en un binario completo (las cifras de la tabla anterior
-son de binarios enlazados de verdad, no de objetos sueltos). El núcleo compila
-además con `g++ -std=c++11` en un PC contra un `Arduino.h` simulado, lo que
-ejercita los caminos de las plataformas sin memoria no volátil.
+Los ocho ejemplos y el proyecto de PlatformIO compilan con `avr-g++ -Wall
+-Wextra` contra el núcleo real de Arduino para ATmega328P sin un solo aviso, y
+enlazan en un binario completo (las cifras de la tabla anterior son de binarios
+enlazados de verdad, no de objetos sueltos). El núcleo compila además con
+`g++ -std=c++11` en un PC contra un `Arduino.h` simulado, lo que ejercita los
+caminos de las plataformas sin memoria no volátil.
 
 **Pruebas funcionales**
 Un banco de pruebas en el PC ejecuta la máquina de estados durante cientos de
 ciclos y comprueba que los pasos avanzan, los contadores cuentan, las recetas
 se ejecutan de principio a fin y la herramienta se acciona en el paso correcto.
+El reloj del banco es una variable, así que se simulan horas de máquina en
+milisegundos y de forma reproducible.
+
+**Pruebas del modelo de tiempo (2.1)**
+88 comprobaciones sobre doce escenarios, todas en verde. Entre ellas: una espera
+declarada de diez minutos que no dispara ninguna alarma y cuyo tiempo va al
+contador de espera y no al de ciclo; la plantilla de la 2.0 **sin tocar una sola
+línea**, cinco minutos en reposo, que antes caía en `CFSM_ERR_CYCLE_TIMEOUT` a
+los 30 s y ahora no; la secuencia que rebota entre dos pasos vigilados, que
+sigue disparando la alarma de ciclo porque es el fallo que esa vigilancia existe
+para cazar; el paso que avisa a los 2 s y para a los 5, con el hook llamado
+exactamente una vez; una pausa pedida en mitad de una espera, comprobando que el
+tiempo de pausa y el de espera no se mezclan en el mismo contador; y el
+comportamiento del `ScanWatchdog` ante un scan de 25 ms.
 
 **Pruebas de regresión**
 Una revisión adversarial del código encontró trece defectos reales —entre ellos
