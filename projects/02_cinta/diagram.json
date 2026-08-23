@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "author": "",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-arduino-nano",
+      "id": "nano",
+      "top": 0,
+      "left": 0
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "Pulsador_Marcha",
+      "top": 120,
+      "left": 200,
+      "attrs": {
+        "color": "green"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "Piloto_Trabajo",
+      "top": -60,
+      "left": 180,
+      "attrs": {
+        "color": "green"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "nano:2",
+      "Pulsador_Marcha:1.l",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "nano:GND.1",
+      "Pulsador_Marcha:2.l",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "nano:13",
+      "Piloto_Trabajo:A",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "nano:GND.2",
+      "Piloto_Trabajo:C",
+      "black",
+      [
+        "v0"
+      ]
+    ]
+  ]
+}
