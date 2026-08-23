@@ -1,6 +1,6 @@
 # MFS-Arduino-Library
 
-![Compilar](https://github.com/CarlosGR01/MFS-Arduino-Library/actions/workflows/compilar.yml/badge.svg)
+[![Compilar](https://github.com/LordLiberte/MFS-Arduino-Library/actions/workflows/compilar.yml/badge.svg)](https://github.com/LordLiberte/MFS-Arduino-Library/actions/workflows/compilar.yml)
 
 Repositorio de automatización sobre Arduino. Contiene **CoreFSM**, una librería
 que traslada el modelo de programación de un autómata industrial —ciclo de scan,
