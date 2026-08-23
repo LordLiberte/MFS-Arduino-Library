@@ -278,3 +278,66 @@ jobs:
             echo "> $fallos ejemplo(s) no compilan. Esto afecta a la LIBRERÍA, no a tus proyectos." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+
+  # ===========================================================================
+  #  4. Veredicto único
+  # ---------------------------------------------------------------------------
+  #  POR QUÉ EXISTE ESTE TRABAJO
+  #  ---------------------------
+  #  El trabajo 2 es una MATRIZ: se llama "2 · projects/00_TestLibrary", y ese
+  #  nombre cambia solo con cada proyecto que añadas. Eso choca de frente con la
+  #  regla de "exigir que el CI pase antes de fusionar", porque esa regla se
+  #  configura escribiendo el NOMBRE del check: si exiges
+  #  "2 · projects/00_TestLibrary" y mañana el proyecto se llama otra cosa, la
+  #  regla se queda esperando eternamente un check que ya no existe y NINGÚN
+  #  pull request se puede fusionar nunca más.
+  #
+  #  Este trabajo resuelve eso. Depende de los otros tres, tiene un nombre FIJO
+  #  ("Todo compila") y sale en verde solo si ninguno de los anteriores ha
+  #  fallado. Es el único que hay que marcar como obligatorio, y sigue valiendo
+  #  aunque metas veinte proyectos más.
+  # ===========================================================================
+  resultado:
+    name: Todo compila
+    # 'always()' es imprescindible: sin esto, si un trabajo del que depende
+    # falla, este ni siquiera se ejecutaría, se quedaría en "skipped", y la
+    # regla de protección lo interpretaría como "aún no ha terminado".
+    if: always()
+    needs: [descubrir, compilar, ejemplos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Veredicto
+        run: |
+          d="${{ needs.descubrir.result }}"
+          c="${{ needs.compilar.result }}"
+          e="${{ needs.ejemplos.result }}"
+
+          echo "1 Buscar proyectos ....... $d"
+          echo "2 Compilar proyectos ..... $c"
+          echo "3 Ejemplos ............... $e"
+
+          malo=0
+          for r in "$d" "$c" "$e"; do
+            case "$r" in
+              # 'skipped' cuenta como bueno: el trabajo 2 se salta legítimamente
+              # cuando todavía no hay ningún proyecto en projects/.
+              success|skipped) ;;
+              *) malo=1 ;;
+            esac
+          done
+
+          {
+            if [ "$malo" -eq 0 ]; then
+              echo "## ✅ Todo compila"
+            else
+              echo "## ❌ Hay algo roto"
+            fi
+            echo ""
+            echo "| Trabajo | Resultado |"
+            echo "|---|---|"
+            echo "| 1 · Buscar proyectos | \`$d\` |"
+            echo "| 2 · Compilar proyectos | \`$c\` |"
+            echo "| 3 · Ejemplos de la librería | \`$e\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit $malo
