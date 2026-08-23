@@ -1,6 +1,6 @@
 # MFS-Arduino-Library
 
-![Compilar](https://github.com/GhostRg110/MFS-Arduino-Library/actions/workflows/compilar.yml/badge.svg)
+![Compilar](https://github.com/CarlosGR01/MFS-Arduino-Library/actions/workflows/compilar.yml/badge.svg)
 
 Repositorio de automatización sobre Arduino. Contiene **CoreFSM**, una librería
 que traslada el modelo de programación de un autómata industrial —ciclo de scan,
@@ -8,8 +8,6 @@ imagen de proceso, bloques funcionales, secuencias por pasos, palabras de mando
 y estado, recetas y alarmas— a C++ sobre microcontrolador. Y contiene los
 proyectos que la usan.
 
-> Si el nombre de usuario del badge no es el tuyo, cámbialo en la línea de
-> arriba: `GhostRg110` → el tuyo.
 
 ---
 
