@@ -1,38 +1,62 @@
 {
   "version": 1,
-  "author": "Carlos Gonzalez Rubio",
+  "author": "Keyestudio KS0470 Dual Uno Layout",
   "editor": "wokwi",
   "parts": [
-    { "type": "wokwi-arduino-uno", "id": "uno", "top": -9, "left": -0.6, "attrs": {} },
-    {
-      "type": "wokwi-led",
-      "id": "GreenLed",
-      "top": -80.4,
-      "left": 71,
-      "attrs": { "color": "green" }
-    },
-    {
-      "type": "wokwi-led",
-      "id": "RedLed",
-      "top": -80.4,
-      "left": 234.2,
-      "attrs": { "color": "red" }
-    },
-    {
-      "type": "wokwi-pushbutton",
-      "id": "btn1",
-      "top": 63.8,
-      "left": -124.8,
-      "attrs": { "color": "green", "xray": "1" }
-    }
+    { "type": "wokwi-uno", "id": "uno", "top": 100, "left": 180, "attrs": {} },
+    { "type": "wokwi-uno", "id": "uno2", "top": 460, "left": 180, "attrs": {} },
+    { "type": "wokwi-hc-sr04", "id": "ultrasonic", "top": -100, "left": 165, "attrs": { "distance": "60" } },
+    { "type": "wokwi-servo", "id": "servo", "top": -70, "left": 410, "attrs": {} },
+    { "type": "wokwi-ir-receiver", "id": "ir_recv", "top": -70, "left": 20, "attrs": {} },
+    { "type": "wokwi-slide-switch", "id": "line_l", "top": 20, "left": -40, "attrs": { "label": "Line L (A0)" } },
+    { "type": "wokwi-slide-switch", "id": "line_m", "top": 20, "left": 30, "attrs": { "label": "Line M (A1)" } },
+    { "type": "wokwi-slide-switch", "id": "line_r", "top": 20, "left": 470, "attrs": { "label": "Line R (A2)" } },
+    { "type": "wokwi-led", "id": "ml_dir", "top": 780, "left": 70, "attrs": { "color": "yellow", "label": "ML_DIR (D4)" } },
+    { "type": "wokwi-led", "id": "ml_pwm", "top": 780, "left": 140, "attrs": { "color": "green", "label": "ML_PWM (D5)" } },
+    { "type": "wokwi-led", "id": "mr_dir", "top": 780, "left": 340, "attrs": { "color": "yellow", "label": "MR_DIR (D2)" } },
+    { "type": "wokwi-led", "id": "mr_pwm", "top": 780, "left": 410, "attrs": { "color": "green", "label": "MR_PWM (D6)" } }
   ],
   "connections": [
-    [ "btn1:2.r", "uno:GND.2", "black", [ "h19.4", "v134.6", "h207.3" ] ],
-    [ "btn1:1.r", "uno:13", "blue", [ "h19.4", "v-163.2", "h162.8" ] ],
-    [ "GreenLed:A", "uno:7", "green", [ "v9.6", "h92.4" ] ],
-    [ "GreenLed:C", "uno:GND.1", "black", [ "v19.2", "h29.2", "v19.2" ] ],
-    [ "RedLed:C", "uno:GND.1", "black", [ "v19.2", "h-134", "v19.2" ] ],
-    [ "RedLed:A", "uno:6", "green", [ "v9.6", "h-61.3" ] ]
+    [ "ultrasonic:VCC", "uno:5V", "red", [ "v0" ] ],
+    [ "ultrasonic:GND", "uno:GND.1", "black", [ "v0" ] ],
+    [ "ultrasonic:TRIG", "uno:12", "orange", [ "v0" ] ],
+    [ "ultrasonic:ECHO", "uno:13", "blue", [ "v0" ] ],
+
+    [ "servo:V+", "uno:5V", "red", [ "v0" ] ],
+    [ "servo:GND", "uno:GND.1", "black", [ "v0" ] ],
+    [ "servo:PWM", "uno:10", "purple", [ "v0" ] ],
+
+    [ "ir_recv:VCC", "uno:5V", "red", [ "v0" ] ],
+    [ "ir_recv:GND", "uno:GND.2", "black", [ "v0" ] ],
+    [ "ir_recv:OUT", "uno:3", "green", [ "v0" ] ],
+
+    [ "line_l:1", "uno:5V", "red", [ "v0" ] ],
+    [ "line_l:2", "uno:A0", "cyan", [ "v0" ] ],
+    [ "line_l:3", "uno:GND.1", "black", [ "v0" ] ],
+
+    [ "line_m:1", "uno:5V", "red", [ "v0" ] ],
+    [ "line_m:2", "uno:A1", "cyan", [ "v0" ] ],
+    [ "line_m:3", "uno:GND.1", "black", [ "v0" ] ],
+
+    [ "line_r:1", "uno:5V", "red", [ "v0" ] ],
+    [ "line_r:2", "uno:A2", "cyan", [ "v0" ] ],
+    [ "line_r:3", "uno:GND.1", "black", [ "v0" ] ],
+
+    [ "uno:2", "uno2:2", "yellow", [ "v0" ] ],
+    [ "uno:4", "uno2:4", "yellow", [ "v0" ] ],
+    [ "uno:5", "uno2:5", "green", [ "v0" ] ],
+    [ "uno:6", "uno2:6", "green", [ "v0" ] ],
+    [ "uno:GND.2", "uno2:GND.1", "black", [ "v0" ] ],
+
+    [ "ml_dir:A", "uno2:4", "yellow", [ "v0" ] ],
+    [ "ml_dir:C", "uno2:GND.2", "black", [ "v0" ] ],
+    [ "ml_pwm:A", "uno2:5", "green", [ "v0" ] ],
+    [ "ml_pwm:C", "uno2:GND.2", "black", [ "v0" ] ],
+
+    [ "mr_dir:A", "uno2:2", "yellow", [ "v0" ] ],
+    [ "mr_dir:C", "uno2:GND.2", "black", [ "v0" ] ],
+    [ "mr_pwm:A", "uno2:6", "green", [ "v0" ] ],
+    [ "mr_pwm:C", "uno2:GND.2", "black", [ "v0" ] ]
   ],
   "dependencies": {}
 }
