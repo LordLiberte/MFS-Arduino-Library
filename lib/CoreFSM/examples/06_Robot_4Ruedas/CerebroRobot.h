@@ -61,6 +61,13 @@ class CerebroRobot : public SequenceBlock {
     uint16_t msPivote         = 350;  /* cuanto pivota para mirar a un lado  */
     uint16_t msGiro90         = 420;  /* calibra esto con tu robot y bateria */
 
+    void requestStop() {
+      ordenMarcha = false;
+      _chasis.stop();
+      _chasis.disable();
+      setStep(ROB_PARADO);
+    }
+
     void begin() override {
       setName(F("CEREBRO"));
       setInitialStep(ROB_PARADO);
@@ -158,8 +165,7 @@ class CerebroRobot : public SequenceBlock {
 
           if (getTimeInStep() >= (_giroDerecha ? msGiro90 : (cfsm_time_t)msGiro90 + msPivote)) {
             _chasis.stop();
-            completeCycle();
-            setStep(ROB_EXPLORAR);
+            completeCycle(ROB_EXPLORAR);
           }
           break;
 

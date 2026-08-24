@@ -2,6 +2,7 @@
 #define COREFSM_DIGITAL_SENSOR_H
 
 #include "IDevice.h"
+#include "DigitalBackend.h"
 
 /* ===========================================================================
  *  DigitalSensor.h  -  Entrada digital con antirrebote y flancos
@@ -33,11 +34,10 @@
  *  la vuelta, de modo que isTriggered() devuelve true cuando el sensor esta
  *  activado, sin que tengas que pensar en tensiones.
  *
- *  Se hace asi por seguridad: si el cable se corta o se suelta un borne, el
- *  pull-up lo lleva a nivel alto, la senal se lee como "sensor no activado" y
- *  la maquina se para. Con logica directa, un cable cortado se leeria como
- *  "sensor activado" y la maquina seguiria como si nada. En seguridad de
- *  maquinas esto se llama principio de corriente de reposo y no es opcional.
+ *  El cableado active-low es habitual y evita entradas flotantes, pero un
+ *  pull-up de microcontrolador no diagnostica por si solo todos los cortes ni
+ *  convierte la entrada en una funcion de seguridad. Eso exige hardware y
+ *  validacion adecuados al riesgo.
  * ======================================================================== */
 
 class DigitalSensor : public IDevice {
@@ -51,10 +51,19 @@ class DigitalSensor : public IDevice {
       : _pin(pin), _activeLow(activeLow), _debounceMs(debounceMs),
         _state(false), _raw(false), _lastRaw(false),
         _rising(false), _falling(false),
-        _lastChangeTime(0), _simValue(false), _invertLogic(false) {}
+        _lastChangeTime(0), _stateSince(0), _simValue(false),
+        _invertLogic(false), _initialized(false) {}
+
+    DigitalSensor(IDigitalBackend& backend, uint8_t channel,
+                  bool activeLow = true, uint16_t debounceMs = 20)
+      : _pin(backend, channel), _activeLow(activeLow), _debounceMs(debounceMs),
+        _state(false), _raw(false), _lastRaw(false),
+        _rising(false), _falling(false),
+        _lastChangeTime(0), _stateSince(0), _simValue(false),
+        _invertLogic(false), _initialized(false) {}
 
     void begin() override {
-      pinMode(_pin, _activeLow ? INPUT_PULLUP : INPUT);
+      _pin.configure(_activeLow ? INPUT_PULLUP : INPUT);
 
       /* La muestra inicial tiene que pasar por las MISMAS transformaciones que
        * aplica readInputs(): forzado e invercion logica. Si se tomara el pin
@@ -62,21 +71,24 @@ class DigitalSensor : public IDevice {
        * daria un valor distinto y, pasado el antirrebote, se generaria un
        * flanco que nadie ha producido. Si ese flanco alimenta un contador o
        * una orden de marcha, la maquina cuenta o arranca sola en el setup(). */
-      bool inicial = _forced ? _simValue : readPhysical();
-      if (_invertLogic) inicial = !inicial;
-
-      _raw = _lastRaw = _state = inicial;
-      _lastChangeTime = cfsm_millis();
+      if (_pin.isNative()) synchronize(currentSample());
+      else                 _initialized = false;
       _rising = _falling = false;
       _changeCount = 0;
     }
 
     /* Fase PAE. Lee, filtra y calcula los flancos de este ciclo. */
     void readInputs() override {
-      bool sample = _forced ? _simValue : readPhysical();
-      if (_invertLogic) sample = !sample;
+      bool sample = currentSample();
 
       _rising = _falling = false;
+
+      /* El backend se captura despues de configurar todos sus canales. La
+       * primera muestra valida fija el estado inicial sin inventar un flanco. */
+      if (!_initialized) {
+        synchronize(sample);
+        return;
+      }
 
       /* Cada cambio en la senal cruda reinicia el reloj de estabilidad. */
       if (sample != _lastRaw) {
@@ -90,6 +102,7 @@ class DigitalSensor : public IDevice {
           _state   = sample;
           _rising  =  _state;
           _falling = !_state;
+          _stateSince = cfsm_millis();
           _changeCount++;
         }
       }
@@ -107,7 +120,7 @@ class DigitalSensor : public IDevice {
 
     /* Cuanto lleva el sensor en su estado actual. Sirve para exigir que una
      * condicion se mantenga: "arranca solo si la barrera lleva 2 s despejada". */
-    cfsm_time_t timeInState() const { return cfsm_elapsed(_lastChangeTime); }
+    cfsm_time_t timeInState() const { return cfsm_elapsed(_stateSince); }
     bool isStableFor(cfsm_time_t ms) const { return timeInState() >= ms; }
 
     /* Numero de conmutaciones desde el arranque. Un sensor que conmuta miles
@@ -128,18 +141,19 @@ class DigitalSensor : public IDevice {
     /* Forzado: desconecta el sensor del pin y le impone un valor. */
     void force(bool value) { _forced = true; _simValue = value; }
 
-    uint8_t pin() const { return _pin; }
+    uint8_t pin() const { return _pin.channel; }
+    bool usesNativePin() const { return _pin.isNative(); }
 
     void describe(Print& out) const {
       out.print('[');
-      if (_name) out.print(_name); else { out.print(CFSM_FSTR("DI")); out.print(_pin); }
+      if (_name) out.print(_name); else { out.print(CFSM_FSTR("DI")); out.print(_pin.channel); }
       out.print(CFSM_FSTR("]="));
       out.print(_state ? '1' : '0');
       if (_forced) out.print(CFSM_FSTR(" *FORZADO*"));
     }
 
   private:
-    uint8_t     _pin;
+    DigitalPin  _pin;
     bool        _activeLow;
     uint16_t    _debounceMs;
 
@@ -149,13 +163,30 @@ class DigitalSensor : public IDevice {
     bool        _rising;
     bool        _falling;
     cfsm_time_t _lastChangeTime;
+    cfsm_time_t _stateSince;
     uint32_t    _changeCount = 0;
 
     bool        _simValue;
     bool        _invertLogic;
+    bool        _initialized;
 
     bool readPhysical() const {
-      return (digitalRead(_pin) == (_activeLow ? LOW : HIGH));
+      return _pin.read() == !_activeLow;
+    }
+
+    bool currentSample() const {
+      /* force() siempre recibe el valor LOGICO final. Invertir tambien el
+       * forzado hacia que force(true) pudiera acabar leyendo false. */
+      if (_forced) return _simValue;
+      bool sample = readPhysical();
+      return _invertLogic ? !sample : sample;
+    }
+
+    void synchronize(bool sample) {
+      _raw = _lastRaw = _state = sample;
+      _lastChangeTime = _stateSince = cfsm_millis();
+      _rising = _falling = false;
+      _initialized = true;
     }
 };
 

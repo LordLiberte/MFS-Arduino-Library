@@ -78,8 +78,7 @@ class EstacionCarga : public SequenceBlock {
            * quedarse esperando en silencio para siempre. */
           if (handshake.isAcknowledged()) {
             handshake.clearDone();      /* baja el aviso: cierra el traspaso */
-            completeCycle();
-            setStep(CARGA_REPOSO);
+            completeCycle(CARGA_REPOSO);
           }
           break;
       }
@@ -162,8 +161,7 @@ class EstacionInspeccion : public SequenceBlock {
           if (getTimeInStep() >= 800) {
             cintaOk = false;
             piezasOk++;
-            completeCycle();
-            setStep(INSP_ESPERANDO);
+            completeCycle(INSP_ESPERANDO);
           }
           break;
 
@@ -172,8 +170,7 @@ class EstacionInspeccion : public SequenceBlock {
           if (getTimeInStep() >= 800) {
             cintaNok = false;
             piezasNok++;
-            completeCycle();
-            setStep(INSP_ESPERANDO);
+            completeCycle(INSP_ESPERANDO);
           }
           break;
       }

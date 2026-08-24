@@ -9,7 +9,12 @@ siempre con el mismo resultado.
 ./ejecutar.sh
 ```
 
-Salida esperada: `88 comprobaciones, 0 fallos`.
+Salida esperada al final de cada banco:
+
+```text
+=== 89 comprobaciones, 0 fallos ===
+=== 35 comprobaciones, 0 fallos ===
+```
 
 ## Que cubre
 
@@ -27,6 +32,12 @@ Salida esperada: `88 comprobaciones, 0 fallos`.
 | P10 | ScanWatchdog: mide, detecta el exceso, no se queda pegado, y el watchdog HW nace apagado |
 | P11 | Regresion: mando por palabra CFGW, incluida la parada rapida activa a bajo |
 | P12 | El ejemplo 08 se comporta como prometen sus comentarios |
+
+`banco_io.cpp` añade 35 comprobaciones de E/S y comunicaciones: antirrebote e
+inversión lógica, captura y commit agrupados, estado seguro enclavado, salud de
+backends, buffer de transmisión lleno, dead-time de motor, reinicio de visión y
+snapshots remotos con CRC, secuencia, sesión, duplicados, pérdida y recuperación
+del enlace.
 
 ## Anadir una prueba
 

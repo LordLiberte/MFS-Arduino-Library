@@ -3,7 +3,7 @@
 
 /* ===========================================================================
  *  CoreFSM  -  Framework de automatizacion para Arduino
- *  Version 2.1.0
+ *  Version 2.2.0
  * ---------------------------------------------------------------------------
  *  Traslada el modelo de programacion de un automata industrial a C++ sobre
  *  microcontroladores: ciclo de scan determinista, imagen de proceso de
@@ -31,8 +31,7 @@
  *    data/    Bloques de datos, configuracion persistente, recetas, alarmas.
  *    diag/    Trazas, telemetria y consola de mantenimiento.
  *    comms/   Sensores inteligentes por bus serie (vision).
- *    tools/   Generador que convierte el diagram.json de Wokwi en la tabla
- *             de hardware.
+ *    tools/   Generador neutral CSV/JSON con adaptador opcional para Wokwi.
  *
  *  EL CICLO DE SCAN, QUE ES LO UNICO QUE HAY QUE ENTENDER PARA EMPEZAR
  *  ------------------------------------------------------------------
@@ -64,6 +63,7 @@
 
 /* --- Entradas y salidas --- */
 #include "io/IDevice.h"
+#include "io/DigitalBackend.h"
 #include "io/DeviceManager.h"
 #include "io/DigitalSensor.h"
 #include "io/DigitalOutput.h"
@@ -89,6 +89,8 @@
 #include "diag/ScanWatchdog.h"
 
 /* --- Comunicaciones --- */
+#include "comms/PacketLink.h"
+#include "comms/RemoteIO.h"
 #include "comms/VisionSensor.h"
 
 /* NOTA: io/IOTable.h NO se incluye aqui a proposito.

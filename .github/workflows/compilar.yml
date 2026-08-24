@@ -30,6 +30,33 @@ concurrency:
 jobs:
 
   # ===========================================================================
+  #  0. Regresión rápida del runtime y de las herramientas
+  # ===========================================================================
+  pruebas:
+    name: 0 · Pruebas host y generador
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Probar el generador CSV, JSON y Wokwi
+        run: python -m unittest discover -s lib/CoreFSM/tools/tests -v
+
+      - name: Probar el runtime en PC
+        run: bash lib/CoreFSM/tests/ejecutar.sh
+
+      - name: Validar y regenerar el proyecto de referencia
+        run: |
+          python lib/CoreFSM/tools/corefsm_gen.py \
+            --project projects/00_TestLibrary --check
+          python lib/CoreFSM/tools/corefsm_gen.py \
+            --project projects/00_TestLibrary --quiet
+          git diff --exit-code -- projects/00_TestLibrary/include/HardwareConfig.h
+
+  # ===========================================================================
   #  1. Averiguar qué proyectos hay
   # ===========================================================================
   descubrir:
@@ -195,16 +222,15 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # Si HardwareConfig.h cambia al compilar, es que el que hay commiteado
-      # estaba desfasado respecto al diagram.json. No rompe la compilación, pero
-      # conviene saberlo: el repositorio dice una cosa y el esquema otra.
+      # Si HardwareConfig.h cambia al compilar, estaba desfasado respecto a su
+      # fuente CSV, JSON o Wokwi. No rompe la compilación, pero conviene saberlo.
       - name: Comprobar que la tabla de hardware está al día
         if: always()
         run: |
           if ! git diff --quiet -- "${{ matrix.proyecto }}/include/"; then
             {
               echo "> ⚠️ **${{ matrix.proyecto }}**: \`HardwareConfig.h\` estaba desfasado"
-              echo "> respecto a \`diagram.json\`. Compila en local y haz commit del archivo"
+              echo "> respecto a su fuente de hardware. Compila en local y haz commit del archivo"
               echo "> regenerado."
             } >> "$GITHUB_STEP_SUMMARY"
             git --no-pager diff -- "${{ matrix.proyecto }}/include/"
@@ -280,7 +306,43 @@ jobs:
           fi
 
   # ===========================================================================
-  #  4. Veredicto único
+  #  4. Crear y compilar un proyecto ESP32 fuera de projects/
+  # ---------------------------------------------------------------------------
+  #  Valida a la vez la plataforma ESP32, la plantilla CSV predeterminada y las
+  #  rutas que genera --dir cuando el proyecto vive en otra carpeta.
+  # ===========================================================================
+  compatibilidad:
+    name: 4 · Proyecto generado ESP32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache de PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.cache/pip
+          key: pio-esp32-${{ runner.os }}-${{ hashFiles('lib/CoreFSM/tools/**') }}
+          restore-keys: pio-esp32-${{ runner.os }}-
+
+      - name: Instalar PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Crear un proyecto CSV en una carpeta externa
+        run: |
+          python lib/CoreFSM/tools/nuevo_proyecto.py ci_esp32 \
+            --placa esp32 --dir "$RUNNER_TEMP/corefsm-smoke"
+
+      - name: Compilar el proyecto generado
+        run: pio run -d "$RUNNER_TEMP/corefsm-smoke/ci_esp32"
+
+  # ===========================================================================
+  #  5. Veredicto único
   # ---------------------------------------------------------------------------
   #  POR QUÉ EXISTE ESTE TRABAJO
   #  ---------------------------
@@ -292,7 +354,7 @@ jobs:
   #  regla se queda esperando eternamente un check que ya no existe y NINGÚN
   #  pull request se puede fusionar nunca más.
   #
-  #  Este trabajo resuelve eso. Depende de los otros tres, tiene un nombre FIJO
+  #  Este trabajo resuelve eso. Depende de todos los anteriores y tiene nombre FIJO
   #  ("Todo compila") y sale en verde solo si ninguno de los anteriores ha
   #  fallado. Es el único que hay que marcar como obligatorio, y sigue valiendo
   #  aunque metas veinte proyectos más.
@@ -303,21 +365,25 @@ jobs:
     # falla, este ni siquiera se ejecutaría, se quedaría en "skipped", y la
     # regla de protección lo interpretaría como "aún no ha terminado".
     if: always()
-    needs: [descubrir, compilar, ejemplos]
+    needs: [pruebas, descubrir, compilar, ejemplos, compatibilidad]
     runs-on: ubuntu-latest
     steps:
       - name: Veredicto
         run: |
+          p="${{ needs.pruebas.result }}"
           d="${{ needs.descubrir.result }}"
           c="${{ needs.compilar.result }}"
           e="${{ needs.ejemplos.result }}"
+          x="${{ needs.compatibilidad.result }}"
 
+          echo "0 Pruebas host ........... $p"
           echo "1 Buscar proyectos ....... $d"
           echo "2 Compilar proyectos ..... $c"
           echo "3 Ejemplos ............... $e"
+          echo "4 Compatibilidad ESP32 ... $x"
 
           malo=0
-          for r in "$d" "$c" "$e"; do
+          for r in "$p" "$d" "$c" "$e" "$x"; do
             case "$r" in
               # 'skipped' cuenta como bueno: el trabajo 2 se salta legítimamente
               # cuando todavía no hay ningún proyecto en projects/.
@@ -335,9 +401,11 @@ jobs:
             echo ""
             echo "| Trabajo | Resultado |"
             echo "|---|---|"
+            echo "| 0 · Pruebas host y generador | \`$p\` |"
             echo "| 1 · Buscar proyectos | \`$d\` |"
             echo "| 2 · Compilar proyectos | \`$c\` |"
             echo "| 3 · Ejemplos de la librería | \`$e\` |"
+            echo "| 4 · Proyecto generado ESP32 | \`$x\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           exit $malo

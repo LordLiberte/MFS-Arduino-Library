@@ -106,8 +106,7 @@ void loop() {
       Serial.println(F(">> MARCHA"));
     } else {
       /* Paro inmediato: se vuelve al paso de reposo, que apaga el chasis. */
-      cerebro.stop();
-      cerebro.start();          /* deja la maquina lista para el siguiente */
+      cerebro.requestStop();
       Serial.println(F(">> PARO"));
     }
   }

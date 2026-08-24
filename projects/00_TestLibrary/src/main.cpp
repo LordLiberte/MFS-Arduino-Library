@@ -15,11 +15,11 @@
 
  
 #include <Arduino.h>
-#include "HardwareConfig.h"     // tabla generada desde diagram.json
+#include "HardwareConfig.h"     // tabla generada desde hardware.csv
 #include "Proceso.h"
 
 /* Crea la instancia global HW con todos los objetos de la tabla. */
-CFSM_DEFINE_HARDWARE
+CFSM_DEFINE_HARDWARE;
 
 BlockManager<4> manager;
 Proceso         proceso;
@@ -51,6 +51,9 @@ void loop() {
   escribirSalidas();      //          bloque -> planta
   tracer.update();
   consola.update();
+  /* Interbloqueo de software: fuerza el valor seguro de cada salida. Para
+   * proteger personas o maquinaria sigue haciendo falta seguridad cableada. */
+  HW.setSafetyInterlock(manager.isEmergencyStop());
   HW.writeOutputs();      // FASE 3 - PAA: volcado de todas las salidas
 }
 

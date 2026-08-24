@@ -14,6 +14,8 @@ BlockManager	KEYWORD1
 Handshake	KEYWORD1
 IAxis	KEYWORD1
 IDevice	KEYWORD1
+IDigitalBackend	KEYWORD1
+DigitalPin	KEYWORD1
 DeviceManager	KEYWORD1
 DigitalSensor	KEYWORD1
 DigitalOutput	KEYWORD1
@@ -23,6 +25,10 @@ TowerLight	KEYWORD1
 UltrasonicSensor	KEYWORD1
 IOManager	KEYWORD1
 CfsmHardware	KEYWORD1
+Mcp23017Backend	KEYWORD1
+CfsmPacketTransport	KEYWORD1
+CfsmNetworkManager	KEYWORD1
+RemoteDigitalBackend	KEYWORD1
 MotorDrive	KEYWORD1
 DifferentialChassis	KEYWORD1
 FourWheelChassis	KEYWORD1
@@ -72,12 +78,15 @@ updateFsm	KEYWORD2
 updateSequence	KEYWORD2
 registerBlock	KEYWORD2
 registerDevice	KEYWORD2
+registerBackend	KEYWORD2
 beginAll	KEYWORD2
 updateAll	KEYWORD2
 readAllInputs	KEYWORD2
 writeAllOutputs	KEYWORD2
 readInputs	KEYWORD2
 writeOutputs	KEYWORD2
+setSafetyInterlock	KEYWORD2
+allBackendsHealthy	KEYWORD2
 setStep	KEYWORD2
 restartStep	KEYWORD2
 getStep	KEYWORD2
@@ -210,6 +219,11 @@ deliver	KEYWORD2
 setPreset	KEYWORD2
 setPeriod	KEYWORD2
 describe	KEYWORD2
+serviceRx	KEYWORD2
+serviceTx	KEYWORD2
+linkOk	KEYWORD2
+age	KEYWORD2
+forceSnapshot	KEYWORD2
 
 #######################################
 # Constantes
@@ -250,10 +264,14 @@ CFSM_ERR_USER_BASE	LITERAL1
 CFSM_TABLE_DI	LITERAL1
 CFSM_TABLE_DO	LITERAL1
 CFSM_TABLE_AI	LITERAL1
+CFSM_TABLE_BACKEND	LITERAL1
+CFSM_TABLE_DI_BACKEND	LITERAL1
+CFSM_TABLE_DO_BACKEND	LITERAL1
+CFSM_TABLE_DO_SAFE	LITERAL1
 CFSM_DEFINE_HARDWARE	LITERAL1
 
 #######################################
-# CoreFSM 2.1 - Esperas, ritmo y scan
+# CoreFSM 2.2 - Esperas, ritmo, scan y hardware extensible
 #######################################
 
 ScanWatchdog	KEYWORD1

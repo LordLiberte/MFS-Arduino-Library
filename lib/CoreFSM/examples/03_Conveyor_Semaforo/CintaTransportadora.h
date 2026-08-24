@@ -133,8 +133,7 @@ class CintaTransportadora : public SequenceBlock {
           /* Pequena pausa de asentamiento antes de admitir el ciclo siguiente:
            * evita que un rebote del sensor cuente dos piezas. */
           if (getTimeInStep() >= 500) {
-            completeCycle();          /* contabiliza y vuelve al paso inicial */
-            setStep(PASO_REPOSO);
+            completeCycle(PASO_REPOSO); /* contabiliza y vuelve al paso inicial */
           }
           break;
       }

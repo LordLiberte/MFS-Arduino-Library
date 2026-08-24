@@ -522,7 +522,12 @@ class SequenceBlock : public FsmBlock {
      *  la duracion del ciclo y decide si se encadena otro o se vuelve a
      *  reposo, segun haya o no una peticion de parada pendiente.
      * -------------------------------------------------------------------- */
-    void completeCycle() {
+    void completeCycle() { completeCycle(SC.initialStep); }
+
+    /* Variante para secuencias cuyo siguiente ciclo no arranca en el paso
+     * inicial. Evita el patron `completeCycle(); setStep(x)`, que borraba el
+     * bit done inmediatamente porque setStep() inicia un ciclo nuevo. */
+    void completeCycle(uint16_t nextStep) {
       SC.cycleCount++;
       SC.lastCycleTimeMs  = getCycleTime();      /* solo tiempo productivo */
       SC.lastBlockedTime  = getBlockedTime();    /* y aparte, lo esperado  */
@@ -535,7 +540,7 @@ class SequenceBlock : public FsmBlock {
         ST.cfgw.stop = false;
         stop();
       } else {
-        setStep(SC.initialStep);
+        setStep(nextStep);
       }
 
       /* El bit 'done' se levanta DESPUES del cambio de paso, porque setStep()
@@ -654,7 +659,8 @@ class SequenceBlock : public FsmBlock {
 
       /* Perder la habilitacion en marcha equivale a una parada ordenada. */
       if (!ST.cfgw.enable && (_currentState == STATE_RUNNING ||
-                              _currentState == STATE_STARTING)) {
+                              _currentState == STATE_STARTING ||
+                              _currentState == STATE_PAUSED || isWaiting())) {
         stop();
       }
 

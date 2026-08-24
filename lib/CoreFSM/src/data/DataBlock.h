@@ -58,7 +58,11 @@ class DataBlock {
      * los valores por defecto que tuviera la estructura. */
     CfsmStoreResult begin(bool loadFromNvm = true) {
       _store.begin();
-      if (!loadFromNvm) return CFSM_STORE_EMPTY;
+      if (!loadFromNvm) {
+        _snapshotCrc = crcOfData();
+        _lastSave = cfsm_millis();
+        return CFSM_STORE_EMPTY;
+      }
       CfsmStoreResult r = _store.load();
       if (r == CFSM_STORE_OK) data = _store.data;
       _snapshotCrc = crcOfData();

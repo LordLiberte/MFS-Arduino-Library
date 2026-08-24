@@ -48,7 +48,7 @@ class BlockManager {
   public:
     BlockManager() : _count(0), _scanCount(0),
                      _lastScanUs(0), _maxScanUs(0), _minScanUs(0xFFFFFFFF),
-                     _emergencyStop(false) {}
+                     _emergencyStop(false), _begun(false) {}
 
     /* -----------------------------------------------------------------------
      *  REGISTRO
@@ -57,7 +57,9 @@ class BlockManager {
      *  se ejecuta nunca, y es un fallo silencioso muy incomodo de localizar.
      * -------------------------------------------------------------------- */
     bool registerBlock(BlockBase* block) {
-      if (_count >= MAX_BLOCKS || block == nullptr) return false;
+      if (_begun || _count >= MAX_BLOCKS || block == nullptr) return false;
+      for (uint8_t i = 0; i < _count; i++)
+        if (_blocks[i] == block) return false;
       block->setId(_count);
       _blocks[_count++] = block;
       return true;
@@ -76,8 +78,10 @@ class BlockManager {
      *  CICLO DE VIDA
      * -------------------------------------------------------------------- */
     void beginAll() {
+      if (_begun) return;
       for (uint8_t i = 0; i < _count; i++) _blocks[i]->begin();
       _scanStartUs = micros();
+      _begun = true;
     }
 
     /* El scan propiamente dicho. Se llama una vez por vuelta del loop(),
@@ -86,15 +90,10 @@ class BlockManager {
       uint32_t t0 = micros();
 
       if (_emergencyStop) {
-        /* Con la seta pulsada no se ejecuta NADA de logica de proceso: se
-         * avisa a todos los bloques y punto. Cualquier otra cosa seria dejar
-         * correr codigo que podria mover un actuador.
-         *
-         * ESTO IMPORTA Y CONVIENE TENERLO PRESENTE: como update() no se
-         * ejecuta, las salidas se quedan congeladas en su ultimo valor. Quien
-         * las lleva a estado seguro es el hook onTransition(-> STATE_ERROR) de
-         * cada bloque, que si se ejecuta (una sola vez) al declararse la
-         * alarma. Si tu bloque gobierna algo peligroso, apagalo ahi. */
+        /* Interbloqueo logico: se detiene la logica de proceso y se notifica a
+         * todos los bloques. Esto NO actua por si solo sobre pines: conecta
+         * tambien HW.setSafetyInterlock(manager.isEmergencyStop()) y utiliza
+         * un circuito de seguridad independiente para riesgos reales. */
         for (uint8_t i = 0; i < _count; i++) _blocks[i]->onEmergencyStop();
       } else {
         for (uint8_t i = 0; i < _count; i++) {
@@ -119,15 +118,17 @@ class BlockManager {
     void stopAll()  { for (uint8_t i=0;i<_count;i++) _blocks[i]->stop();   }
     void holdAll()  { for (uint8_t i=0;i<_count;i++) _blocks[i]->hold();   }
     void resumeAll(){ for (uint8_t i=0;i<_count;i++) _blocks[i]->resume(); }
-    void resetAll() { for (uint8_t i=0;i<_count;i++) _blocks[i]->reset();  }
+    void resetAll() {
+      if (_emergencyStop) return;
+      for (uint8_t i=0;i<_count;i++) _blocks[i]->reset();
+    }
 
     /* -----------------------------------------------------------------------
-     *  PARADA DE EMERGENCIA
-     *  Se engancha a la seta fisica. Mientras este activa, ningun bloque
-     *  ejecuta logica y todos quedan en fallo. Liberarla NO rearranca nada:
-     *  hay que rearmar explicitamente, que es exactamente lo que exige la
-     *  normativa de seguridad de maquinas (una seta liberada jamas debe
-     *  provocar un rearranque automatico).
+     *  INTERBLOQUEO DE SOFTWARE
+     *  El nombre de la API se conserva por compatibilidad. Mientras esta
+     *  activo, ningun bloque ejecuta logica y todos quedan en fallo. Liberarlo
+     *  NO rearranca nada: hay que rearmar explicitamente. No sustituye una
+     *  parada de emergencia cableada ni constituye una funcion certificada.
      * -------------------------------------------------------------------- */
     void setEmergencyStop(bool active) { _emergencyStop = active; }
     bool isEmergencyStop() const       { return _emergencyStop; }
@@ -172,7 +173,7 @@ class BlockManager {
       out.print(CFSM_FSTR(" scan: ult="));   out.print(_lastScanUs);
       out.print(CFSM_FSTR("us max="));       out.print(_maxScanUs);
       out.print(CFSM_FSTR("us n="));         out.println(_scanCount);
-      if (_emergencyStop) out.println(CFSM_FSTR(" *** SETA DE EMERGENCIA ACTIVA ***"));
+      if (_emergencyStop) out.println(CFSM_FSTR(" *** INTERBLOQUEO SOFTWARE ACTIVO ***"));
       out.println(CFSM_FSTR("------------------------------"));
     }
 
@@ -187,6 +188,7 @@ class BlockManager {
     uint32_t   _minScanUs;
 
     bool       _emergencyStop;
+    bool       _begun;
 };
 
 #endif /* COREFSM_BLOCK_MANAGER_H */

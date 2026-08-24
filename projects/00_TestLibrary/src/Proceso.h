@@ -62,8 +62,7 @@ class Proceso : public SequenceBlock {
           salida = true;
           if (getTimeInStep() >= tiempoTrabajoMs) {
             salida = false;
-            completeCycle();          /* cuenta la pieza y cierra el ciclo */
-            setStep(PASO_REPOSO);
+            completeCycle(PASO_REPOSO); /* cuenta la pieza y cierra el ciclo */
           }
           break;
       }

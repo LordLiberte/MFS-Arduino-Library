@@ -11,8 +11,8 @@
  *  IDEA 2: NADA BLOQUEA
  *    No hay un solo delay(). En lugar de "espera 2 segundos", se dice "si han
  *    pasado 2 segundos desde que entre aqui, cambia de paso". La diferencia es
- *    que durante esos 2 segundos la maquina sigue mirando la seta de
- *    emergencia; con delay(), no.
+ *    que durante esos 2 segundos la maquina sigue actualizando entradas e
+ *    interbloqueos logicos; con delay(), no.
  *
  *  IDEA 3: LA LOGICA NO TOCA PINES
  *    El bloque enciende y apaga VARIABLES. Quien las lleva al cobre es el
@@ -73,8 +73,7 @@ class Parpadeo : public SequenceBlock {
         case PASO_ENCENDIDO:
           luz = true;
           if (getTimeInStep() >= periodoMs) {
-            completeCycle();          /* cuenta un parpadeo completo */
-            setStep(PASO_APAGADO);
+            completeCycle(PASO_APAGADO); /* cuenta un parpadeo completo */
           }
           break;
       }

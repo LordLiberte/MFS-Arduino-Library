@@ -1,9 +1,13 @@
 {
-  "defaults": { "debounce": 20 },
-  "pins": {
-    "_comentario": "Ajustes finos por PIN de placa. Ejemplos abajo, borra esto.",
-    "_ejemplo_entrada": { "name": "FC_Trabajo", "role": "DI", "debounce": 5 },
-    "_ejemplo_salida":  { "name": "Rele_Bomba", "role": "DO", "activeLow": true }
+  "source": { "path": "hardware.csv", "format": "csv", "node": "main" },
+  "nodes": [
+    { "id": "main", "board": "nano" }
+  ],
+  "defaults": {
+    "pullup": true,
+    "debounce_ms": 20,
+    "active_low": false,
+    "safe": false
   },
-  "ignore": []
+  "backends": []
 }

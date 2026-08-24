@@ -1,12 +1,17 @@
-# CoreFSM 2.1
+# CoreFSM 2.2
 
 **Framework de automatización para Arduino.** Traslada el modelo de programación de
 un autómata industrial —ciclo de scan determinista, imagen de proceso, bloques
 funcionales, secuencias por pasos, palabras de mando y estado, recetas y
 alarmas— a C++ sobre microcontroladores.
 
-Compatible con AVR (Nano, Uno, Mega), ESP32, ESP8266, RP2040 y SAMD.
-Sin memoria dinámica. Sin `delay()`. Sin dependencias externas.
+Diseñado para AVR, ESP32, ESP8266, RP2040 y SAMD; la integración continua
+compila actualmente AVR y ESP32. Sin memoria dinámica, sin `delay()` y sin
+dependencias externas obligatorias.
+
+> **Seguridad:** CoreFSM es software de control general, no una función de
+> seguridad certificada. Consulta [`SAFETY.md`](../../SAFETY.md) antes de
+> conectar actuadores.
 
 ---
 
@@ -19,7 +24,7 @@ Sin memoria dinámica. Sin `delay()`. Sin dependencias externas.
 5. [Tu primer bloque, paso a paso](#5-tu-primer-bloque-paso-a-paso)
 6. [Los tres relojes: scan, ciclo y espera](#6-los-tres-relojes-scan-ciclo-y-espera)
 7. [Referencia rápida](#7-referencia-rápida)
-8. [Wokwi como única fuente de verdad](#8-wokwi-como-única-fuente-de-verdad)
+8. [Asignación de hardware](#8-asignación-de-hardware)
 9. [Recetas](#9-recetas)
 10. [Diagnóstico](#10-diagnóstico)
 11. [Consumo de memoria](#11-consumo-de-memoria)
@@ -53,7 +58,7 @@ funcionando en fábricas.
 - La lógica de proceso no toca pines, así que la puedes probar en el simulador,
   en el PC o en otra placa sin cambiar una línea.
 - Ninguna espera bloquea: mientras un cilindro tarda 2 segundos en salir, la
-  máquina sigue vigilando la seta de emergencia.
+  máquina sigue vigilando entradas e interbloqueos.
 - Cuando algo falla, el sistema dice **qué** falló, **dónde** y **cuándo**, en
   lugar de quedarse colgado en silencio.
 - Añadir una segunda estación no obliga a tocar la primera.
@@ -108,7 +113,7 @@ board         = nanoatmega328
 framework     = arduino
 monitor_speed = 115200
 lib_deps      = file://../CoreFSM
-extra_scripts = pre:tools/wokwi2corefsm.py   ; genera la tabla desde Wokwi
+extra_scripts = pre:../CoreFSM/tools/corefsm_gen.py  ; CSV/JSON/Wokwi opcional
 ```
 
 ### Wokwi
@@ -193,7 +198,7 @@ final, y activar dos salidas incompatibles.
 El scan debe durar microsegundos. Todo lo que lo alargue —un `delay()`, un
 `while` de espera, un `Serial.println()` que llena el buffer— reduce la
 capacidad de reacción de la máquina. Una máquina que tarda 20 ms en enterarse de
-que se ha pulsado la seta es una máquina peligrosa.
+que ha cambiado un interbloqueo pierde capacidad de reacción.
 
 En lugar de *«espera 2 segundos»*, se escribe *«si han pasado 2 segundos desde
 que entré a este paso, cambia»*. Durante esos 2 segundos el scan sigue corriendo.
@@ -293,8 +298,7 @@ class MiProceso : public SequenceBlock {
           actuador = true;
           if (getTimeInStep() >= 2000) {      // 2 s de proceso
             actuador = false;
-            completeCycle();                  // cuenta la pieza
-            setStep(PASO_REPOSO);
+            completeCycle(PASO_REPOSO);       // cuenta y cambia sin perder done
           }
           break;
       }
@@ -581,7 +585,8 @@ IDLE ──start()──▶ STARTING ──▶ RUNNING ──hold()──▶ PAU
 ```
 
 `stop()` es una parada ordenada que termina el ciclo. `hold()` congela el paso y
-permite reanudar donde estaba. `abort()` corta en seco.
+permite reanudar donde estaba. `abort()` entra directamente en `ERROR`, pero no
+retira energía ni sustituye una parada cableada.
 
 `SUSPENDED` y `HELD` **no son pausa ni avería**: son una máquina sana que no
 puede producir ahora. La lógica del paso sigue ejecutándose en ellos —tiene que
@@ -643,90 +648,74 @@ c4.drive(vx, vy, w);        // vy solo tiene sentido con ruedas mecanum
 
 ---
 
-## 8. Wokwi como única fuente de verdad
+## 8. Asignación de hardware
 
-El error más caro de una puesta en marcha no es un fallo de lógica: es que el
-plano diga una cosa, el cable esté en otro borne y el software apunte a un
-tercer sitio. Tres fuentes de verdad que se desincronizan.
+La lógica nunca debería conocer pines. CoreFSM admite cuatro fuentes para
+crear la misma tabla `HW.Nombre`:
 
-CoreFSM elimina dos de las tres.
+| Fuente | Uso recomendado |
+|---|---|
+| `hardware.csv` | tabla simple, fácil de revisar y editar |
+| `hardware.json` | varios nodos, backends y metadatos estructurados |
+| `HardwareConfig.h` | control manual sin Python |
+| `diagram.json` | adaptador opcional para proyectos dibujados en Wokwi |
 
+El proyecto nuevo usa CSV por defecto. Wokwi ya no es una dependencia del
+flujo de trabajo.
+
+```text
+CSV / JSON / Wokwi ──> corefsm_gen.py ──> HardwareConfig.h ──> HW.Nombre
+tabla C++ manual ─────────────────────────────────────────────> HW.Nombre
 ```
-   diagram.json (Wokwi)              <- dibujas y cableas aquí
-          │
-          │  wokwi2corefsm.py        <- se ejecuta antes de compilar
-          ▼
-   HardwareConfig.h                  <- tabla de variables generada
-          │
-          │  io/IOTable.h (X-Macros)
-          ▼
-   HW.Pulsador_Marcha.hasRisen()     <- ya existe en tu código
+
+Ejemplo CSV:
+
+```csv
+node,name,role,target,pullup,active_low,debounce_ms,filter,safe
+main,Marcha,DI,gpio.2,true,,20,,
+main,Valvula,DO,EXP1.8,,false,,,false
+main,Presion,AI,A0,,,,3,
 ```
 
-### Cómo se usa
-
-1. En Wokwi, **renombra el `id`** de cada componente con el nombre que quieras
-   que tenga la variable: `"id": "Pulsador_Arranque_Linea"`.
-2. Ejecuta el generador:
+Genera o valida desde la raíz del proyecto:
 
 ```bash
-python3 tools/wokwi2corefsm.py -i diagram.json -o HardwareConfig.h
+python tools/corefsm_gen.py --project .
+python tools/corefsm_gen.py --project . --check
 ```
 
-3. En tu sketch:
+El generador selecciona `hardware.csv`, `hardware.json` o `diagram.json`; un
+`corefsm.json` puede fijar la fuente, el nodo y los valores por defecto. Si una
+fuente contiene varias placas, hay que seleccionar una con `--node`: nunca se
+toma la primera silenciosamente.
+
+Para Wokwi se conserva el comando compatible:
+
+```bash
+python tools/wokwi2corefsm.py -i diagram.json -o include/HardwareConfig.h
+```
+
+El runtime no conoce el origen. El uso siempre es igual:
 
 ```cpp
 #include "HardwareConfig.h"
-CFSM_DEFINE_HARDWARE        // crea la instancia global HW
+CFSM_DEFINE_HARDWARE;
 
 void setup() { HW.begin(); }
-void loop()  {
+void loop() {
   HW.readInputs();
-  if (HW.Pulsador_Arranque_Linea.hasRisen()) { ... }
+  if (HW.Marcha.hasRisen()) { /* lógica */ }
   HW.writeOutputs();
 }
 ```
 
-Si mueves un cable del pin 2 al pin 8, al recompilar el software lee el pin 8.
-No hay nada que actualizar a mano.
+Los destinos pueden ser GPIO nativos (`gpio.2`, `A0`) o canales de backend
+(`EXP1.8`). `Mcp23017Backend` captura y vuelca sus 16 bits de forma agrupada,
+sin convertir cada señal en una transacción I2C distinta.
 
-### Cómo decide qué es entrada y qué es salida
-
-**Por prefijo en el nombre** (manda siempre):
-
-| Prefijo | Papel |
-|---|---|
-| `DI_` `I_` `IN_` | entrada digital |
-| `DO_` `Q_` `OUT_` | salida digital |
-| `AI_` `E_` `AN_` | entrada analógica |
-
-**Por tipo de componente** (respaldo automático): `wokwi-pushbutton` y
-`wokwi-slide-switch` son entradas, `wokwi-led` y `wokwi-relay-module` son
-salidas, `wokwi-potentiometer` es analógica.
-
-### Ajustes finos: `corefsm.json`
-
-Para lo que el esquema no puede expresar, pon este archivo junto al `diagram.json`:
-
-```json
-{
-  "defaults": { "debounce": 20 },
-  "pins": {
-    "3": { "name": "FC_Carro_Trabajo", "role": "DI", "debounce": 5 },
-    "7": { "name": "Rele_Bomba",       "role": "DO", "activeLow": true }
-  },
-  "ignore": ["led_decorativo"]
-}
-```
-
-El generador avisa de pines duplicados, nombres repetidos y componentes que no
-sabe clasificar. Con `--check` valida sin escribir nada.
-
-### ¿Por qué no lo hace el Arduino en tiempo de ejecución?
-
-Porque un microcontrolador corre sobre el metal: no tiene sistema de archivos ni
-puede abrir un JSON al arrancar. La traducción tiene que ocurrir en el PC,
-mientras se compila. De ahí que sea un script de Python.
+Consulta la [guía de fuentes](docs/hardware/sources.md), la
+[asignación manual](docs/hardware/manual-pinmap.md) y los
+[expansores](docs/hardware/io-expanders.md).
 
 ---
 
@@ -855,8 +844,9 @@ contacto flojo que falla una vez al día) sería invisible para siempre.
 
 ## 11. Consumo de memoria
 
-Medido con `avr-size` sobre un Arduino Nano (ATmega328P: 30 KB de flash útiles,
-2 KB de RAM). Programas completos, ya enlazados:
+Referencia histórica medida para CoreFSM 2.1 con `avr-size` sobre un Arduino
+Nano (ATmega328P: 30 KB de flash útiles, 2 KB de RAM). Son programas completos
+enlazados; 2.2 añade cabeceras que solo ocupan flash/RAM cuando se instancian:
 
 | Ejemplo | Flash | RAM |
 |---|---|---|
@@ -971,6 +961,8 @@ CoreFSM/
 │   │
 │   ├── io/
 │   │   ├── IDevice.h             interfaz de objeto de campo
+│   │   ├── DigitalBackend.h       GPIO nativo o backend agrupado
+│   │   ├── Mcp23017Backend.h      16 GPIO por I2C, imagen por scan
 │   │   ├── DeviceManager.h       imagen de proceso PAE/PAA
 │   │   ├── DigitalSensor.h       antirrebote, flancos, forzado
 │   │   ├── DigitalOutput.h       modos, invercion, watchdog + AnalogOutput
@@ -1002,11 +994,17 @@ CoreFSM/
 │   │   └── ScanWatchdog.h        vigilancia del tiempo de ciclo de scan
 │   │
 │   └── comms/
+│       ├── PacketLink.h          tramas COBS/CRC sobre Stream
+│       ├── RemoteIO.h            imagen digital remota con timeout
 │       └── VisionSensor.h        cámara por serie + servocontrol visual
 │
 ├── tools/
-│   ├── wokwi2corefsm.py          diagram.json -> HardwareConfig.h
+│   ├── corefsm_gen.py            CSV/JSON/Wokwi -> HardwareConfig.h
+│   ├── wokwi2corefsm.py          adaptador compatible para Wokwi
+│   ├── nuevo_proyecto.py         plantilla CSV/JSON/Wokwi/manual
 │   └── platformio.ini.ejemplo
+│
+├── docs/                         referencia técnica por módulos
 │
 └── examples/
     ├── 01_PrimerBloque/            las tres ideas básicas
@@ -1016,52 +1014,28 @@ CoreFSM/
     ├── 05_Recetas_y_Config/        recetas, EEPROM y teach-in
     ├── 06_Robot_4Ruedas/           coche con evitación de obstáculos
     ├── 07_Vision_Seguimiento/      seguimiento visual en lazo cerrado
-    └── 08_Esperas_y_Ritmo/         esperas, takt objetivo y watchdog de scan
+    ├── 08_Esperas_y_Ritmo/         esperas, takt objetivo y watchdog de scan
+    ├── 09_Dos_Nodos_UART/          snapshots entre dos placas
+    └── 10_Expansor_MCP23017/       E/S agrupada por I2C
 ```
 
 ---
 
 ## Verificación
 
-La librería no es solo "compila y parece que va". Se ha comprobado así:
+La automatización de GitHub ejecuta cuatro capas independientes:
 
-**Compilación limpia**
-Los ocho ejemplos y el proyecto de PlatformIO compilan con `avr-g++ -Wall
--Wextra` contra el núcleo real de Arduino para ATmega328P sin un solo aviso, y
-enlazan en un binario completo (las cifras de la tabla anterior son de binarios
-enlazados de verdad, no de objetos sueltos). El núcleo compila además con
-`g++ -std=c++11` en un PC contra un `Arduino.h` simulado, lo que ejercita los
-caminos de las plataformas sin memoria no volátil.
+- los bancos C++ host de secuencias, recetas, E/S, backends, interbloqueo y red;
+- las pruebas Python del generador CSV/JSON/Wokwi y de sus validaciones;
+- la compilación PlatformIO de cada proyecto y de todos los ejemplos en AVR;
+- la creación en una ruta externa y compilación de un proyecto ESP32 nuevo.
 
-**Pruebas funcionales**
-Un banco de pruebas en el PC ejecuta la máquina de estados durante cientos de
-ciclos y comprueba que los pasos avanzan, los contadores cuentan, las recetas
-se ejecutan de principio a fin y la herramienta se acciona en el paso correcto.
-El reloj del banco es una variable, así que se simulan horas de máquina en
-milisegundos y de forma reproducible.
+En local, `tests/ejecutar.sh` ejecuta la regresión C++ y
+`python -m unittest discover -s tools/tests -v` verifica el generador. Los
+detalles y requisitos están en [`tests/README.md`](tests/README.md).
 
-**Pruebas del modelo de tiempo (2.1)**
-88 comprobaciones sobre doce escenarios, todas en verde. Entre ellas: una espera
-declarada de diez minutos que no dispara ninguna alarma y cuyo tiempo va al
-contador de espera y no al de ciclo; la plantilla de la 2.0 **sin tocar una sola
-línea**, cinco minutos en reposo, que antes caía en `CFSM_ERR_CYCLE_TIMEOUT` a
-los 30 s y ahora no; la secuencia que rebota entre dos pasos vigilados, que
-sigue disparando la alarma de ciclo porque es el fallo que esa vigilancia existe
-para cazar; el paso que avisa a los 2 s y para a los 5, con el hook llamado
-exactamente una vez; una pausa pedida en mitad de una espera, comprobando que el
-tiempo de pausa y el de espera no se mezclan en el mismo contador; y el
-comportamiento del `ScanWatchdog` ante un scan de 25 ms.
-
-**Pruebas de regresión**
-Una revisión adversarial del código encontró trece defectos reales —entre ellos
-que la pausa no pausaba, que el watchdog de salida no enclavaba, que un motor
-podía arrancar solo tras una parada de emergencia durante una inversión de
-giro, y que el ejecutor de recetas nunca accionaba la herramienta—. Todos están
-corregidos, y cada uno tiene una prueba que reproduce el escenario exacto que
-fallaba. Las trece pasan.
-
-Si encuentras un defecto nuevo, lo útil es el escenario: qué se pulsó, en qué
-paso estaba y qué hizo la máquina.
+Cuando informes un defecto, incluye el escenario reproducible: entradas,
+estado/paso, tiempo transcurrido y resultado observado.
 
 ---
 

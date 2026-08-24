@@ -124,8 +124,7 @@ class ProcesoSoldadura : public SequenceBlock {
         case PASO_FIN_CICLO:
           salidasSeguras();
           if (getTimeInStep() >= 300) {
-            completeCycle();
-            setStep(PASO_INIT);
+            completeCycle(PASO_INIT);
           }
           break;
       }

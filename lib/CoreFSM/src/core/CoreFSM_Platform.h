@@ -51,6 +51,16 @@
   #define CFSM_IS_CONSTRAINED  0
 #endif
 
+/* Resolucion ADC por defecto. Puede sobrescribirse con -D CFSM_ADC_MAX=...
+ * si el sketch llama a analogReadResolution() o usa otra referencia. */
+#ifndef CFSM_ADC_MAX
+  #if defined(CFSM_ARCH_ESP32)
+    #define CFSM_ADC_MAX 4095
+  #else
+    #define CFSM_ADC_MAX 1023
+  #endif
+#endif
+
 /* ---------------------------------------------------------------------------
  *  2. Persistencia: hay memoria no volatil disponible?
  * ---------------------------------------------------------------------------
@@ -139,8 +149,8 @@ static inline cfsm_time_t cfsm_elapsed(cfsm_time_t since) {
 
 /* Version de la libreria, accesible desde el codigo de usuario. */
 #define CFSM_VERSION_MAJOR  2
-#define CFSM_VERSION_MINOR  1
+#define CFSM_VERSION_MINOR  2
 #define CFSM_VERSION_PATCH  0
-#define CFSM_VERSION_STR    "2.1.0"
+#define CFSM_VERSION_STR    "2.2.0"
 
 #endif /* COREFSM_PLATFORM_H */

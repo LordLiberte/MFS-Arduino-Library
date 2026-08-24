@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "parts": [
+    {"type": "wokwi-arduino-nano", "id": "nano"},
+    {"type": "wokwi-pushbutton", "id": "Pulsador_Marcha"},
+    {"type": "wokwi-led", "id": "Piloto_Trabajo"}
+  ],
+  "connections": [
+    ["nano:2", "Pulsador_Marcha:1.l", "green", []],
+    ["nano:GND.1", "Pulsador_Marcha:2.l", "black", []],
+    ["nano:13", "Piloto_Trabajo:A", "green", []],
+    ["nano:GND.2", "Piloto_Trabajo:C", "black", []]
+  ]
+}

@@ -8,10 +8,9 @@
  * ---------------------------------------------------------------------------
  *  EL REPARTO DE TRABAJO
  *  ---------------------
- *  Un microcontrolador no procesa imagenes. Ni debe intentarlo: mientras
- *  recorre una matriz de pixeles no atiende los finales de carrera ni la seta
- *  de emergencia, y una maquina que deja de vigilar la seguridad para pensar
- *  es una maquina peligrosa.
+ *  Un microcontrolador de control no debe recorrer matrices de pixeles dentro
+ *  del scan: durante ese tiempo deja de actualizar entradas, secuencias y
+ *  salidas, y el tiempo de respuesta deja de ser determinista.
  *
  *  Se hace lo mismo que en la industria: la camara es un equipo aparte
  *  (HuskyLens, OpenMV, Nicla Vision, ESP32-CAM, una Raspberry) que procesa por
@@ -70,19 +69,22 @@ struct VisionResult {
 class VisionSensor : public IDevice {
   public:
     VisionSensor(Stream& port, cfsm_time_t timeoutMs = 500)
-      : _port(port), _timeout(timeoutMs), _lastRx(0), _idx(0), _minConf(60) {}
+      : _port(port), _timeout(timeoutMs), _lastRx(0), _idx(0),
+        _minConf(60), _maxBytesPerScan(32) {}
 
     void begin() override {
       _idx    = 0;
       _lastRx = cfsm_millis();
       _data   = VisionResult();
+      _commsOk = false;
     }
 
     /* Fase PAE. Consume como mucho lo que haya en el buffer de recepcion en
      * este instante; no espera a que llegue nada. Sin esa disciplina, un cable
      * suelto colgaria el scan. */
     void readInputs() override {
-      while (_port.available()) {
+      uint8_t budget = _maxBytesPerScan;
+      while (budget-- > 0 && _port.available()) {
         uint8_t b = (uint8_t)_port.read();
 
         if (_idx == 0) {
@@ -103,7 +105,7 @@ class VisionSensor : public IDevice {
 
       /* Vigilancia de comunicacion. */
       if (cfsm_elapsed(_lastRx) > _timeout) {
-        _data.detected = false;
+        _data           = VisionResult();
         _commsOk       = false;
       }
     }
@@ -111,7 +113,7 @@ class VisionSensor : public IDevice {
     /* -----------------------------------------------------------------------
      *  CONSULTA
      * -------------------------------------------------------------------- */
-    bool    hasTarget()   const { return _data.detected && _commsOk; }
+    bool    hasTarget()   const { return _data.detected && !_data.error && _commsOk; }
     bool    isPieceOk()   const { return _data.pieceOk; }
     bool    isBusy()      const { return _data.busy; }
     bool    commsOk()     const { return _commsOk; }
@@ -131,6 +133,10 @@ class VisionSensor : public IDevice {
     /* Confianza minima para dar por buena una deteccion. Subela si la camara
      * da falsos positivos; bajala si pierde el objetivo demasiado facil. */
     void setMinConfidence(uint8_t c) { _minConf = c; }
+
+    /* Acota el trabajo de recepcion para que un emisor ruidoso o inundado no
+     * monopolice el ciclo de scan. */
+    void setMaxBytesPerScan(uint8_t bytes) { _maxBytesPerScan = bytes ? bytes : 1; }
 
     /* Envia una orden a la camara (disparo, cambio de programa de inspeccion).
      * El protocolo de vuelta es cosa del firmware de la camara. */
@@ -162,6 +168,7 @@ class VisionSensor : public IDevice {
     uint8_t     _buf[8];
     uint8_t     _idx;
     uint8_t     _minConf;
+    uint8_t     _maxBytesPerScan;
     bool        _commsOk = false;
     VisionResult _data;
 
@@ -174,7 +181,8 @@ class VisionSensor : public IDevice {
       _data.pieceOk    = (_buf[6] & 0x01) != 0;
       _data.busy       = (_buf[6] & 0x02) != 0;
       _data.error      = (_buf[6] & 0x04) != 0;
-      _data.detected   = (_data.classId != 0) && (_data.confidence >= _minConf);
+      _data.detected   = !_data.error && (_data.classId != 0) &&
+                         (_data.confidence >= _minConf);
       _lastRx  = cfsm_millis();
       _commsOk = true;
     }

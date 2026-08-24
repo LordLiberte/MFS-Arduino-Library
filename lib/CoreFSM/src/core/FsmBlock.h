@@ -196,8 +196,8 @@ class FsmBlock : public BlockBase {
 
     /* Rearme. Solo tiene efecto estando en ERROR, y solo si el bloque hijo
      * autoriza el rearme (ver canReset()). Si la causa del fallo sigue
-     * presente no hace nada, y es deliberado: pulsar rearme veinte veces con
-     * la seta todavia hundida no debe conseguir nada. */
+     * presente no hace nada, y es deliberado: repetir el rearme con el
+     * interbloqueo logico activo no debe conseguir nada. */
     void reset() override {
       if (_currentState != STATE_ERROR) return;
       if (!canReset()) return;         /* la causa sigue presente */
@@ -205,13 +205,12 @@ class FsmBlock : public BlockBase {
       transitionTo(STATE_IDLE);
     }
 
-    /* Aborto inmediato: salta a ERROR sin pasar por STOPPING. Es lo que hace
-     * una seta de emergencia. No es lo mismo que stop(): stop() es ordenado
-     * y termina el ciclo; abort() corta en seco. */
+    /* Aborto logico inmediato: salta a ERROR sin pasar por STOPPING. No es lo
+     * mismo que stop(), que es ordenado y termina el ciclo. Este cambio de
+     * estado no escribe GPIO ni sustituye una parada cableada. */
     void abort(uint16_t code = CFSM_ERR_ESTOP) override { fault(code); }
 
-    /* Traduccion de la seta de emergencia a alarma. Se llama a todos los
-     * bloques por igual, incluidos los que no son FsmBlock. */
+    /* Traduccion del interbloqueo de software a alarma. */
     void onEmergencyStop() override { if (!isFaulted()) fault(CFSM_ERR_ESTOP); }
 
     /* -----------------------------------------------------------------------
@@ -293,11 +292,11 @@ class FsmBlock : public BlockBase {
      * hijo puede negarse mientras la causa fisica del fallo siga presente:
      *
      *      bool canReset() const override {
-     *        return !setaEmergenciaPulsada && puertaCerrada;
+     *        return !interbloqueoLogicoActivo && puertaCerrada;
      *      }
      *
      * Esto evita el vicio clasico de darle al boton de rearme cincuenta veces
-     * con la seta todavia pulsada. */
+     * con la causa logica todavia activa. */
     virtual bool canReset() const { return true; }
 };
 

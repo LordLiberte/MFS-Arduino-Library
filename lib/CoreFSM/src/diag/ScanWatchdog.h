@@ -127,7 +127,9 @@ class ScanWatchdog {
     void onOverrun(void (*fn)(uint32_t us)) { _onOverrun = fn; }
 
     void resetStats() {
-      _maxUs = 0; _minUs = 0xFFFFFFFFUL; _overruns = 0; _worstUs = 0; _count = 0;
+      _t0 = 0; _lastUs = 0; _maxUs = 0; _minUs = 0xFFFFFFFFUL;
+      _avgUs = 0; _count = 0; _overruns = 0; _worstUs = 0;
+      _overrun = false;
     }
 
     void report(Print& out) const {

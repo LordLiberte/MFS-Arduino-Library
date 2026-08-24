@@ -1,90 +1,180 @@
-# tools/ — Herramientas del proyecto
+# Herramientas de CoreFSM
 
-## `nuevo_proyecto.py`
+Las herramientas traducen una descripción de hardware a
+`include/HardwareConfig.h` y crean proyectos con una estructura uniforme. Solo
+usan la biblioteca estándar de Python.
 
-Crea una carpeta de proyecto nueva bajo `proyectos/`, ya cableada contra la
-librería y lista para compilar sin tocar nada.
+## Crear un proyecto
 
-```bash
-python lib/CoreFSM/tools/nuevo_proyecto.py 03_brazo
-python lib/CoreFSM/tools/nuevo_proyecto.py 04_dosificador --placa esp32
-python lib/CoreFSM/tools/nuevo_proyecto.py 05_prueba --sin-wokwi
-```
-
-Placas: `nano` (por defecto), `uno`, `mega`, `esp32`. Se puede lanzar desde
-cualquier sitio del repositorio: busca la raíz sola (la reconoce por tener
-`lib/CoreFSM/`).
-
-Genera `platformio.ini` con las rutas relativas correctas, un `src/main.cpp` y
-un `src/Proceso.h` que compilan tal cual, un `diagram.json` mínimo con un
-pulsador y un LED, `wokwi.toml` para simular en VS Code, y ejecuta el generador
-para que `include/HardwareConfig.h` exista desde el primer momento.
-
-Que todos los proyectos salgan con la misma forma tiene una consecuencia útil
-aguas abajo: el CI los descubre solo buscando `proyectos/*/platformio.ini`, sin
-que haya que registrar nada en ningún sitio.
-
----
-
-## `wokwi2corefsm.py`
-
-Convierte el `diagram.json` de Wokwi en el `HardwareConfig.h` de CoreFSM.
+Desde la raíz del repositorio:
 
 ```bash
-python3 wokwi2corefsm.py                                  # busca diagram.json aquí
-python3 wokwi2corefsm.py -i ruta/diagram.json -o include/HardwareConfig.h
-python3 wokwi2corefsm.py --check                          # valida sin escribir
+python lib/CoreFSM/tools/nuevo_proyecto.py 01_cinta
+python lib/CoreFSM/tools/nuevo_proyecto.py 02_brazo --placa esp32
 ```
 
-Como hook de PlatformIO, en `platformio.ini`:
+Placas: `nano`, `uno`, `mega` y `esp32`. La fuente predeterminada es CSV:
 
-```ini
-extra_scripts = pre:tools/wokwi2corefsm.py
+```bash
+python lib/CoreFSM/tools/nuevo_proyecto.py 03_csv --fuente csv
+python lib/CoreFSM/tools/nuevo_proyecto.py 04_json --fuente json
+python lib/CoreFSM/tools/nuevo_proyecto.py 05_wokwi --fuente wokwi
+python lib/CoreFSM/tools/nuevo_proyecto.py 06_manual --fuente manual
 ```
 
-El script detecta solo si lo ha invocado PlatformIO y, en ese caso, lee
-`<proyecto>/diagram.json` y escribe `<proyecto>/include/HardwareConfig.h`.
+| Modo | Fuente canónica | Generación automática |
+|---|---|---|
+| `csv` | `hardware.csv` | sí |
+| `json` | `hardware.json` | sí |
+| `wokwi` | `diagram.json` | sí |
+| `manual` | `include/HardwareConfig.h` | no |
 
-### Clasificación de señales
+`--sin-wokwi` sigue aceptándose como alias obsoleto de `--fuente csv`. Todos
+los modos crean un proyecto que compila de entrada; el modo manual no instala
+ningún hook de generación.
 
-**Por prefijo en el `id` del componente** (prioridad máxima):
+Opciones adicionales:
 
-| Prefijo | Papel |
+- `--dir RUTA`: elige el contenedor de proyectos. Puede ser relativa, absoluta
+  o estar a cualquier profundidad; las rutas hacia CoreFSM se calculan desde el
+  proyecto generado.
+- `--forzar`: sobrescribe archivos de una carpeta ya existente.
+
+## Generador neutral
+
+`corefsm_gen.py` acepta CSV, JSON explícito o un esquema Wokwi y produce la
+misma tabla X-Macro:
+
+```bash
+python lib/CoreFSM/tools/corefsm_gen.py --project projects/00_TestLibrary
+python lib/CoreFSM/tools/corefsm_gen.py --project projects/00_TestLibrary --check
+```
+
+Descubrimiento predeterminado:
+
+1. la fuente indicada por `corefsm.json.source`;
+2. `hardware.csv`;
+3. `hardware.json`;
+4. `diagram.json`.
+
+Opciones:
+
+| Opción | Significado |
 |---|---|
-| `DI_` `I_` `IN_` | entrada digital |
-| `DO_` `Q_` `OUT_` | salida digital |
-| `AI_` `E_` `AN_` | entrada analógica |
+| `--project DIR` | raíz del proyecto; por defecto, el directorio actual |
+| `-i`, `--input` | fuente explícita |
+| `-o`, `--output` | cabecera de salida |
+| `--format auto|csv|json|wokwi` | fuerza el adaptador de entrada |
+| `--config` | manifiesto alternativo |
+| `--node` | selecciona un nodo cuando hay varios |
+| `--check` | valida sin escribir |
+| `--quiet` | omite el resumen |
 
-**Por tipo de componente** (respaldo automático): pulsadores e interruptores son
-entradas, LEDs, relés y zumbadores son salidas, potenciómetros y LDR son
-analógicas.
+Un archivo multplaca ambiguo es un error: hay que seleccionar el nodo. El
+generador no vuelve a elegir silenciosamente la primera placa.
 
-### Ajustes finos: `corefsm.json`
+## CSV
 
-Colócalo junto al `diagram.json`:
+El encabezado tiene nueve columnas fijas:
+
+```csv
+node,name,role,target,pullup,active_low,debounce_ms,filter,safe
+main,Marcha,DI,gpio.2,true,,20,,
+main,Valvula,DO,EXP1.8,,false,,,false
+main,Presion,AI,A0,,,,3,
+```
+
+- `role`: `DI`, `DO` o `AI`.
+- `target`: pin nativo (`gpio.2`, `2`, `A0`) o `BACKEND.canal`.
+- `pullup` y `debounce_ms`: solo para `DI`.
+- `active_low` y `safe`: solo para `DO`.
+- `filter`: solo para `AI`, de 0 a 8.
+
+## JSON
 
 ```json
 {
-  "board": "nano",
-  "defaults": { "debounce": 20 },
-  "pins": {
-    "3": { "name": "FC_Carro_Trabajo", "role": "DI", "pullup": true, "debounce": 5 },
-    "7": { "name": "Rele_Bomba",       "role": "DO", "activeLow": true },
-    "A0":{ "name": "Presion_Linea",    "role": "AI", "filter": 5 }
-  },
-  "ignore": ["led_decorativo", "display1"]
+  "nodes": [
+    {
+      "id": "main",
+      "board": "nano",
+      "signals": [
+        {"name": "Marcha", "role": "DI", "target": "gpio.2",
+         "pullup": true, "debounce_ms": 20},
+        {"name": "Valvula", "role": "DO", "target": "EXP1.8",
+         "active_low": false, "safe": false}
+      ]
+    }
+  ],
+  "backends": [
+    {"node": "main", "name": "EXP1", "driver": "MCP23017",
+     "bus": "Wire", "address": "0x20"}
+  ]
 }
 ```
 
-Las claves de `pins` son **números de pin de la placa**, que es lo único
-inequívoco: un componente puede tener varios pines conectados.
+## Manifiesto `corefsm.json`
 
-### Qué comprueba
+El manifiesto separa la fuente de los valores predeterminados y de la
+infraestructura:
 
-- Dos componentes en el mismo pin.
-- Dos señales con el mismo nombre (no compilaría).
-- Componentes cuyo tipo no sabe clasificar (los omite y avisa).
-- Nombres que no son identificadores válidos de C++ (los convierte).
+```json
+{
+  "source": {"path": "hardware.csv", "format": "csv", "node": "main"},
+  "nodes": [{"id": "main", "board": "nano"}],
+  "defaults": {
+    "pullup": true,
+    "debounce_ms": 20,
+    "active_low": false,
+    "safe": false
+  },
+  "backends": [
+    {"node": "main", "name": "EXP1", "driver": "MCP23017",
+     "bus": "Wire", "address": 32}
+  ]
+}
+```
 
-No sobrescribe el archivo si el contenido no ha cambiado, para no forzar
-recompilaciones innecesarias.
+El backend generado actualmente es MCP23017: direcciones `0x20`..`0x27` y
+canales 0..15. Las entradas analógicas deben ser GPIO nativos.
+
+## Wokwi opcional
+
+El adaptador clasifica señales por prefijo (`DI_`, `DO_`, `AI_`) y, como
+respaldo, por tipo de componente. La configuración histórica `pins` e `ignore`
+continúa disponible en `corefsm.json`.
+
+`wokwi2corefsm.py` se conserva como wrapper compatible:
+
+```bash
+python lib/CoreFSM/tools/wokwi2corefsm.py \
+  -i diagram.json -o include/HardwareConfig.h
+```
+
+Los proyectos antiguos pueden mantener este hook de PlatformIO; internamente
+delega en el generador neutral y también descubre CSV o JSON cuando se ejecuta
+como hook.
+
+## PlatformIO y archivos versionados
+
+En la ubicación habitual `projects/<nombre>`, el hook generado queda así:
+
+```ini
+extra_scripts = pre:../../lib/CoreFSM/tools/corefsm_gen.py
+```
+
+Si se usa `--dir`, `nuevo_proyecto.py` escribe automáticamente la ruta correcta
+en `extra_scripts`, `lib_extra_dirs` y el enlace de la guía.
+
+Conviene versionar la fuente, `corefsm.json` y `HardwareConfig.h`. Así se puede
+compilar sin ejecutar Python y el CI detecta si la cabecera quedó desfasada. El
+generador no reescribe el archivo cuando el contenido no cambia.
+
+## Validaciones
+
+Se rechazan nombres C++ inválidos o reservados, señales y destinos duplicados,
+campos incompatibles con el rol, backends inexistentes, canales fuera de rango,
+direcciones I2C repetidas y selección ambigua de nodo.
+
+La referencia completa está en
+[`docs/hardware/sources.md`](../docs/hardware/sources.md).

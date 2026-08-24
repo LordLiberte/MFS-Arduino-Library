@@ -26,6 +26,11 @@ inline size_t strlen_P(const char* s){ return strlen(s); }
 
 extern unsigned long g_ms;
 extern unsigned long g_us;
+extern uint8_t g_pinModes[256];
+extern uint8_t g_digitalLevels[256];
+extern int     g_analogLevels[256];
+extern int     g_pwmLevels[256];
+void resetArduinoStub();
 unsigned long millis();
 unsigned long micros();
 void delay(unsigned long);
@@ -46,7 +51,9 @@ typedef std::string String;
 class Print {
  public:
   virtual size_t write(uint8_t) { return 1; }
-  size_t write(const uint8_t* b, size_t n){ (void)b; return n; }
+  size_t write(const uint8_t* b, size_t n){
+    size_t done=0; while(done<n && write(b[done])) done++; return done;
+  }
   size_t print(const char* s){ fputs(s, stdout); return strlen(s);}
   size_t print(const __FlashStringHelper* s){ return print((const char*)s); }
   size_t print(char c){ fputc(c, stdout); return 1; }

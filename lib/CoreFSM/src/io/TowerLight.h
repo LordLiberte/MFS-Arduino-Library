@@ -8,9 +8,9 @@
  * ---------------------------------------------------------------------------
  *  EL CODIGO DE COLORES NO ES ARBITRARIO
  *  -------------------------------------
- *  Esta normalizado (IEC 60204-1 / ANSI). Un operario que entra en una nave
- *  que no conoce sabe leer las balizas sin preguntar, y por eso conviene
- *  respetarlo aunque sea tu maquina y tu mando:
+ *  Esta clase adopta una convencion industrial habitual. El significado
+ *  definitivo debe contrastarse con la norma, el mercado y la evaluacion de
+ *  riesgos aplicables a cada maquina:
  *
  *      ROJO fijo        Averia. La maquina esta parada y necesita intervencion.
  *      ROJO intermitente Emergencia o situacion peligrosa. Actua ya.
@@ -59,9 +59,9 @@ class TowerLight {
     void setEmergency(){apply(OUT_BLINK_FAST, OUT_OFF, OUT_OFF, true); }
     void setOff()     { apply(OUT_OFF, OUT_OFF, OUT_OFF, false); }
 
-    /* Prueba de lamparas: enciende todo un momento. Es obligatorio en muchas
-     * normas de maquina y es de sentido comun: una baliza con el rojo fundido
-     * es peor que no tener baliza, porque transmite seguridad falsa. */
+    /* Prueba de lamparas: enciende todo un momento. Puede formar parte del
+     * diagnostico exigido por la aplicacion; la libreria no verifica lamparas
+     * fundidas ni el cumplimiento de ninguna norma. */
     void lampTest()   { apply(OUT_ON, OUT_ON, OUT_ON, false); }
 
     /* --- Puente directo desde el estado de un bloque --------------------- */
@@ -101,8 +101,8 @@ class TowerLight {
       _yellow.setMode(y);
       _green.setMode(g);
       if (_buzzer) _buzzer->setMode((horn && !_muted) ? OUT_BLINK_FAST : OUT_OFF);
-      /* Cualquier cambio de estado rearma el zumbador: una alarma nueva
-       * vuelve a sonar aunque la anterior estuviera silenciada. */
+      /* Cuando desaparece la condicion de bocina se rearma el silencio; la
+       * siguiente alarma vuelve a sonar. */
       if (!horn) _muted = false;
     }
 };

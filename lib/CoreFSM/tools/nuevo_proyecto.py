@@ -3,26 +3,28 @@
 """
 nuevo_proyecto.py
 =================
-Crea una carpeta de proyecto nueva bajo `proyectos/`, ya cableada contra la
-librería y lista para compilar sin tocar nada.
+Crea una carpeta de proyecto nueva bajo `projects/` o `proyectos/` por defecto,
+o en la ubicación indicada con `--dir`; queda enlazada con la librería y lista
+para compilar sin tocar nada.
 
 POR QUÉ EXISTE
 --------------
-Un proyecto nuevo necesita seis archivos que siempre dicen casi lo mismo, y dos
-rutas relativas (`../../lib`) que si te equivocas dan un error de compilación
-que no se parece en nada a la causa. Copiar y pegar el proyecto anterior
-funciona hasta el día en que se te olvida cambiar el nombre en un sitio.
+Un proyecto nuevo necesita varios archivos que siempre dicen casi lo mismo y
+rutas hacia la copia compartida de CoreFSM. El script calcula esas rutas desde
+la ubicación real. Copiar y pegar el proyecto anterior funciona hasta el día en
+que se olvida cambiar el nombre o una ruta en un sitio.
 
 Que lo genere un script tiene además una consecuencia útil aguas abajo: como
 todos los proyectos salen con la misma forma, el CI puede descubrirlos solo
-buscando `proyectos/*/platformio.ini`. No hay que registrar nada en ningún
-sitio.
+buscando `projects/*/platformio.ini` o `proyectos/*/platformio.ini`. No hay que
+registrar nada en ningún sitio.
 
 USO
 ---
     python lib/CoreFSM/tools/nuevo_proyecto.py 03_brazo
     python lib/CoreFSM/tools/nuevo_proyecto.py 04_dosificador --placa esp32
-    python lib/CoreFSM/tools/nuevo_proyecto.py 05_prueba --sin-wokwi
+    python lib/CoreFSM/tools/nuevo_proyecto.py 05_simulacion --fuente wokwi
+    python lib/CoreFSM/tools/nuevo_proyecto.py 06_manual --fuente manual
 
 Se puede lanzar desde cualquier sitio del repositorio: busca la raíz solo.
 """
@@ -46,16 +48,24 @@ import sys
 PLACAS = {
     "nano":  {"plataforma": "atmelavr",    "board": "nanoatmega328",
               "tipo": "wokwi-arduino-nano", "id": "nano",
-              "pin_btn": "2", "pin_led": "13"},
+              "pin_btn": "2", "pin_led": "13",
+              "wokwi_pin_btn": "2", "wokwi_pin_led": "13",
+              "firmware_ext": "hex"},
     "uno":   {"plataforma": "atmelavr",    "board": "uno",
               "tipo": "wokwi-arduino-uno",  "id": "uno",
-              "pin_btn": "2", "pin_led": "13"},
+              "pin_btn": "2", "pin_led": "13",
+              "wokwi_pin_btn": "2", "wokwi_pin_led": "13",
+              "firmware_ext": "hex"},
     "mega":  {"plataforma": "atmelavr",    "board": "megaatmega2560",
               "tipo": "wokwi-arduino-mega", "id": "mega",
-              "pin_btn": "2", "pin_led": "13"},
+              "pin_btn": "2", "pin_led": "13",
+              "wokwi_pin_btn": "2", "wokwi_pin_led": "13",
+              "firmware_ext": "hex"},
     "esp32": {"plataforma": "espressif32", "board": "esp32dev",
               "tipo": "board-esp32-devkit-c-v4", "id": "esp",
-              "pin_btn": "D4", "pin_led": "D2"},
+              "pin_btn": "4", "pin_led": "2",
+              "wokwi_pin_btn": "4", "wokwi_pin_led": "2",
+              "firmware_ext": "bin"},
 }
 
 
@@ -111,6 +121,19 @@ def nombre_valido(n):
     return n
 
 
+def ruta_desde(origen, destino):
+    """Devuelve una ruta portable desde ``origen`` hasta ``destino``.
+
+    En Windows no existe una ruta relativa entre unidades distintas. En ese
+    caso se conserva la ruta absoluta, que PlatformIO también admite.
+    """
+    try:
+        ruta = os.path.relpath(destino, origen)
+    except ValueError:
+        ruta = os.path.abspath(destino)
+    return ruta.replace("\\", "/")
+
+
 # ---------------------------------------------------------------------------
 #  Plantillas
 # ---------------------------------------------------------------------------
@@ -127,15 +150,12 @@ board         = {board}
 framework     = arduino
 monitor_speed = 115200
 
-; La libreria vive dos niveles mas arriba, compartida con los demas proyectos.
+; La libreria se comparte con los demas proyectos del repositorio.
 ; lib_extra_dirs apunta a la carpeta que CONTIENE librerias, no a la libreria.
 ; Arreglar un fallo en lib/CoreFSM lo arregla para todos los proyectos a la vez.
-lib_extra_dirs = ../../lib
+lib_extra_dirs = {lib_dir}
 
-; 'pre:' = se ejecuta ANTES de compilar. Lee diagram.json y reescribe
-; include/HardwareConfig.h, de modo que mover un cable en el esquema basta para
-; que el software lea el pin nuevo.
-extra_scripts  = pre:../../lib/CoreFSM/tools/wokwi2corefsm.py
+{generation_block}
 
 build_flags =
   -Wall
@@ -152,19 +172,46 @@ WOKWI_TOML = """# Simulacion dentro de VS Code (extension "Wokwi for VS Code").
 # Si cambias el nombre del entorno en platformio.ini, cambialo tambien aqui.
 [wokwi]
 version  = 1
-firmware = '.pio/build/{placa}/firmware.hex'
+firmware = '.pio/build/{placa}/firmware.{firmware_ext}'
 elf      = '.pio/build/{placa}/firmware.elf'
 """
 
-COREFSM_JSON = """{{
-  "defaults": {{ "debounce": 20 }},
-  "pins": {{
-    "_comentario": "Ajustes finos por PIN de placa. Ejemplos abajo, borra esto.",
-    "_ejemplo_entrada": {{ "name": "FC_Trabajo", "role": "DI", "debounce": 5 }},
-    "_ejemplo_salida":  {{ "name": "Rele_Bomba", "role": "DO", "activeLow": true }}
-  }},
-  "ignore": []
-}}
+GENERATION_BLOCK = """; 'pre:' se ejecuta ANTES de compilar. La fuente elegida en
+; corefsm.json se convierte en include/HardwareConfig.h.
+extra_scripts  = pre:{corefsm_dir}/tools/corefsm_gen.py"""
+
+MANUAL_GENERATION_BLOCK = """; HardwareConfig.h se mantiene a mano en este proyecto.
+; No hay generador previo a la compilacion."""
+
+HARDWARE_CSV = """node,name,role,target,pullup,active_low,debounce_ms,filter,safe
+main,{tag_btn},DI,gpio.{pin_btn},true,,20,,
+main,{tag_led},DO,gpio.{pin_led},,false,,,false
+"""
+
+MANUAL_HARDWARE_CONFIG = """/* =============================================================================
+ *  HardwareConfig.h  -  CONFIGURACION MANUAL
+ * -----------------------------------------------------------------------------
+ *  Este archivo es la fuente de verdad del cableado. Edita las filas y conserva
+ *  la aridad de cada tabla.
+ * ========================================================================== */
+
+#ifndef HARDWARE_CONFIG_H
+#define HARDWARE_CONFIG_H
+
+#include <CoreFSM.h>
+
+#define CFSM_TABLE_DI(ROW) \\
+  ROW( {pin_btn:>4}, {tag_btn:<32}, true ,  20 )
+
+#define CFSM_TABLE_DO(ROW) \\
+  ROW( {pin_led:>4}, {tag_led:<32}, false )
+
+#define CFSM_TABLE_AI(ROW) \\
+  /* (ninguna) */
+
+#include <io/IOTable.h>
+
+#endif /* HARDWARE_CONFIG_H */
 """
 
 MAIN_CPP = """/* =============================================================================
@@ -181,11 +228,11 @@ MAIN_CPP = """/* ===============================================================
  * ========================================================================== */
 
 #include <Arduino.h>
-#include "HardwareConfig.h"     // tabla generada desde diagram.json
+#include "HardwareConfig.h"     // tabla de hardware: {source_label}
 #include "Proceso.h"
 
 /* Crea la instancia global HW con todos los objetos de la tabla. */
-CFSM_DEFINE_HARDWARE
+CFSM_DEFINE_HARDWARE;
 
 BlockManager<4> manager;
 Proceso         proceso;
@@ -217,6 +264,9 @@ void loop() {{
   escribirSalidas();      //          bloque -> planta
   tracer.update();
   consola.update();
+  /* Interbloqueo global de software. No sustituye una cadena de seguridad ni
+   * una parada de emergencia certificada y cableada. */
+  HW.setSafetyInterlock(manager.isEmergencyStop());
   HW.writeOutputs();      // FASE 3 - PAA: volcado de todas las salidas
 }}
 
@@ -301,8 +351,7 @@ class Proceso : public SequenceBlock {{
           salida = true;
           if (getTimeInStep() >= tiempoTrabajoMs) {{
             salida = false;
-            completeCycle();          /* cuenta la pieza y cierra el ciclo */
-            setStep(PASO_REPOSO);
+            completeCycle(PASO_REPOSO); /* cuenta, cierra y cambia de paso */
           }}
           break;
       }}
@@ -342,16 +391,13 @@ Proyecto de CoreFSM. Placa: **{board}**.
 Abre **esta carpeta** en VS Code (no la raíz del repositorio) y pulsa
 `Ctrl+Alt+B`. Para cargar, `Ctrl+Alt+U`. Monitor serie, `Ctrl+Alt+S`.
 
-## Flujo de trabajo
+## Configurar el hardware
 
-1. Dibuja el circuito en [wokwi.com](https://wokwi.com) y **ponle nombre a cada
-   componente**: el `id` de Wokwi se convierte en el nombre de la variable.
-2. Pega el resultado en `diagram.json`.
-3. Compila. El generador reescribe `include/HardwareConfig.h` solo, y ya puedes
-   escribir `HW.Mi_Sensor.hasRisen()`.
+{source_help}
 
-Ajustes que el esquema no puede expresar (antirrebote de un sensor concreto, un
-relé activo a nivel bajo, un pin a ignorar) van en `corefsm.json`.
+Tras cambiar la asignación, compila. En los modos CSV, JSON y Wokwi el
+generador actualiza `include/HardwareConfig.h`; el código de proceso continúa
+usando nombres estables como `HW.Mi_Sensor.hasRisen()`.
 
 ## Archivos
 
@@ -359,11 +405,9 @@ relé activo a nivel bajo, un pin a ignorar) van en `corefsm.json`.
 |---|---|
 | `src/main.cpp` | El ciclo de scan y la conexión con el hardware |
 | `src/Proceso.h` | La lógica del proceso. **Aquí va tu trabajo.** |
-| `diagram.json` | El esquema. La única fuente de verdad del cableado. |
-| `corefsm.json` | Ajustes finos del generador |
-| `include/HardwareConfig.h` | **Generado.** No lo edites: se reescribe solo. |
+{source_row}{config_row}| `include/HardwareConfig.h` | {header_description} |
 
-La guía completa de la librería está en `../../lib/CoreFSM/README.md`.
+La guía completa de la librería está en `{guide_path}`.
 """
 
 
@@ -383,34 +427,126 @@ def plantilla_diagrama(p, tag_btn, tag_led):
              "top": -60, "left": 180, "attrs": {"color": "green"}},
         ],
         "connections": [
-            ["%s:%s" % (p["id"], p["pin_btn"]), "%s:1.l" % tag_btn, "green", ["v0"]],
+            ["%s:%s" % (p["id"], p["wokwi_pin_btn"]), "%s:1.l" % tag_btn, "green", ["v0"]],
             ["%s:GND.1" % p["id"],              "%s:2.l" % tag_btn, "black", ["v0"]],
-            ["%s:%s" % (p["id"], p["pin_led"]), "%s:A"   % tag_led, "green", ["v0"]],
+            ["%s:%s" % (p["id"], p["wokwi_pin_led"]), "%s:A"   % tag_led, "green", ["v0"]],
             ["%s:GND.2" % p["id"],              "%s:C"   % tag_led, "black", ["v0"]],
         ],
     }, indent=2, ensure_ascii=False) + "\n"
 
 
+def plantilla_hardware_json(board, pin_btn, pin_led, tag_btn, tag_led):
+    """Fuente explicita equivalente al CSV inicial."""
+    return json.dumps({
+        "version": 1,
+        "nodes": [{
+            "id": "main",
+            "board": board,
+            "signals": [
+                {"name": tag_btn, "role": "DI", "target": "gpio.%s" % pin_btn,
+                 "pullup": True, "debounce_ms": 20},
+                {"name": tag_led, "role": "DO", "target": "gpio.%s" % pin_led,
+                 "active_low": False, "safe": False},
+            ],
+        }],
+        "backends": [],
+    }, indent=2, ensure_ascii=False) + "\n"
+
+
+def plantilla_corefsm(fuente, board, board_id):
+    config = {
+        "source": {
+            "format": fuente,
+            "path": {
+                "csv": "hardware.csv",
+                "json": "hardware.json",
+                "wokwi": "diagram.json",
+            }[fuente],
+        },
+        "defaults": {"debounce_ms": 20},
+    }
+    if fuente == "csv":
+        config["nodes"] = [{"id": "main", "board": board}]
+        config["backends"] = []
+    elif fuente == "wokwi":
+        # Compatibilidad con el campo historico: tambien selecciona la placa si
+        # un diagrama contiene mas de una.
+        config["board"] = board_id
+        config["pins"] = {}
+        config["ignore"] = []
+    return json.dumps(config, indent=2, ensure_ascii=False) + "\n"
+
+
+SOURCE_README = {
+    "csv": {
+        "source_label": "hardware.csv",
+        "source_help": (
+            "Edita `hardware.csv`: una fila por señal. `target` acepta `gpio.2`, "
+            "`A0` o `EXP1.3`; los backends se declaran en `corefsm.json`."),
+        "source_row": "| `hardware.csv` | Tabla manual y fuente de verdad del cableado |\n",
+        "config_row": "| `corefsm.json` | Fuente, nodo, valores por defecto y backends |\n",
+        "header_description": "Generado; no lo edites porque se reescribe al compilar.",
+    },
+    "json": {
+        "source_label": "hardware.json",
+        "source_help": (
+            "Edita `hardware.json`. Puede contener varios nodos, backends y "
+            "señales; selecciona un nodo con `custom_corefsm_node` si procede."),
+        "source_row": "| `hardware.json` | Modelo explícito de nodos, backends y señales |\n",
+        "config_row": "| `corefsm.json` | Selección de fuente y valores por defecto |\n",
+        "header_description": "Generado; no lo edites porque se reescribe al compilar.",
+    },
+    "wokwi": {
+        "source_label": "diagram.json de Wokwi",
+        "source_help": (
+            "Dibuja el circuito en [wokwi.com](https://wokwi.com), asigna un `id` "
+            "claro a cada componente y guarda el resultado en `diagram.json`."),
+        "source_row": "| `diagram.json` | Esquema Wokwi y fuente de verdad del cableado |\n",
+        "config_row": "| `corefsm.json` | Selección de placa y ajustes finos |\n",
+        "header_description": "Generado; no lo edites porque se reescribe al compilar.",
+    },
+    "manual": {
+        "source_label": "HardwareConfig.h manual",
+        "source_help": (
+            "Edita directamente `include/HardwareConfig.h`. En este modo no hay "
+            "generador ni otro archivo que pueda sobrescribirlo."),
+        "source_row": "",
+        "config_row": "",
+        "header_description": "Fuente de verdad manual; conserva la forma de las tablas.",
+    },
+}
+
+
 def escribir(ruta, contenido):
     with open(ruta, "w", encoding="utf-8", newline="\n") as f:
         f.write(contenido)
-    print("   + %s" % os.path.relpath(ruta))
+    print("   + %s" % ruta_desde(os.getcwd(), ruta))
 
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Crea un proyecto nuevo de CoreFSM bajo proyectos/.")
+        description="Crea un proyecto nuevo de CoreFSM listo para compilar.")
     ap.add_argument("nombre", help="nombre de la carpeta, p. ej. 03_brazo")
     ap.add_argument("--placa", default="nano", choices=sorted(PLACAS),
                     help="placa de destino (por defecto: nano)")
+    ap.add_argument("--fuente", choices=("csv", "json", "wokwi", "manual"),
+                    default=None,
+                    help="fuente del hardware (por defecto: csv)")
     ap.add_argument("--sin-wokwi", action="store_true",
-                    help="no crear diagram.json ni wokwi.toml")
+                    help="alias obsoleto de --fuente csv")
     ap.add_argument("--forzar", action="store_true",
                     help="sobrescribir si la carpeta ya existe")
     ap.add_argument("--dir", default=None,
                     help="carpeta donde crear el proyecto "
                          "(por defecto: proyectos/ o projects/, la que exista)")
     a = ap.parse_args()
+
+    fuente = a.fuente or "csv"
+    if a.sin_wokwi:
+        if a.fuente not in (None, "csv"):
+            ap.error("--sin-wokwi no se puede combinar con --fuente %s" % a.fuente)
+        fuente = "csv"
+        print("AVISO: --sin-wokwi esta obsoleto; usa --fuente csv.", file=sys.stderr)
 
     nombre = nombre_valido(a.nombre)
     placa = PLACAS[a.placa]
@@ -422,47 +558,87 @@ def main():
         raise SystemExit(
             "ERROR: ya existe %s\n"
             "       Elige otro nombre, o usa --forzar para sobrescribir."
-            % os.path.relpath(destino, raiz))
+            % ruta_desde(raiz, destino))
 
     tag_btn = "Pulsador_Marcha"
     tag_led = "Piloto_Trabajo"
 
-    print("Creando proyecto '%s' (placa %s)" % (nombre, a.placa))
+    print("Creando proyecto '%s' (placa %s, fuente %s)" %
+          (nombre, a.placa, fuente))
     os.makedirs(os.path.join(destino, "src"), exist_ok=True)
     os.makedirs(os.path.join(destino, "include"), exist_ok=True)
 
-    campos = dict(nombre=nombre, placa=a.placa, tag_btn=tag_btn, tag_led=tag_led,
-                  **placa)
+    # Las rutas se calculan desde el proyecto real. Así --dir funciona tanto
+    # dentro de projects/ como en una carpeta profunda o absoluta.
+    lib_dir = ruta_desde(destino, os.path.join(raiz, "lib"))
+    corefsm_dir = ruta_desde(destino, os.path.join(raiz, "lib", "CoreFSM"))
+
+    readme_fields = SOURCE_README[fuente]
+    generation_template = (MANUAL_GENERATION_BLOCK if fuente == "manual"
+                           else GENERATION_BLOCK)
+    generation_block = generation_template.format(corefsm_dir=corefsm_dir)
+    campos = dict(
+        nombre=nombre, placa=a.placa, tag_btn=tag_btn, tag_led=tag_led,
+        generation_block=generation_block,
+        lib_dir=lib_dir,
+        corefsm_dir=corefsm_dir,
+        guide_path=corefsm_dir + "/README.md",
+        source_label=readme_fields["source_label"],
+        source_help=readme_fields["source_help"],
+        source_row=readme_fields["source_row"],
+        config_row=readme_fields["config_row"],
+        header_description=readme_fields["header_description"],
+        **placa)
 
     escribir(os.path.join(destino, "platformio.ini"), PLATFORMIO_INI.format(**campos))
     escribir(os.path.join(destino, "src", "main.cpp"), MAIN_CPP.format(**campos))
     escribir(os.path.join(destino, "src", "Proceso.h"), PROCESO_H.format(**campos))
     escribir(os.path.join(destino, "README.md"), README_MD.format(**campos))
 
-    if not a.sin_wokwi:
+    if fuente == "csv":
+        escribir(os.path.join(destino, "hardware.csv"), HARDWARE_CSV.format(**campos))
+        escribir(os.path.join(destino, "corefsm.json"),
+                 plantilla_corefsm("csv", a.placa, placa["id"]))
+    elif fuente == "json":
+        escribir(os.path.join(destino, "hardware.json"),
+                 plantilla_hardware_json(a.placa, placa["pin_btn"], placa["pin_led"],
+                                          tag_btn, tag_led))
+        escribir(os.path.join(destino, "corefsm.json"),
+                 plantilla_corefsm("json", a.placa, placa["id"]))
+    elif fuente == "wokwi":
         escribir(os.path.join(destino, "diagram.json"),
                  plantilla_diagrama(placa, tag_btn, tag_led))
-        escribir(os.path.join(destino, "corefsm.json"), COREFSM_JSON.format())
+        escribir(os.path.join(destino, "corefsm.json"),
+                 plantilla_corefsm("wokwi", a.placa, placa["id"]))
         escribir(os.path.join(destino, "wokwi.toml"), WOKWI_TOML.format(**campos))
+    else:
+        pin_btn = re.sub(r"^(?:D|GP|GPIO)", "", placa["pin_btn"], flags=re.I)
+        pin_led = re.sub(r"^(?:D|GP|GPIO)", "", placa["pin_led"], flags=re.I)
+        manual_fields = dict(campos, pin_btn=pin_btn, pin_led=pin_led)
+        escribir(os.path.join(destino, "include", "HardwareConfig.h"),
+                 MANUAL_HARDWARE_CONFIG.format(**manual_fields))
 
     # Git ignora las carpetas vacias, asi que include/ desapareceria al clonar.
     escribir(os.path.join(destino, "include", ".gitkeep"), "")
 
     # Generar ya la tabla de hardware, para que el proyecto compile de entrada.
-    generador = os.path.join(raiz, "lib", "CoreFSM", "tools", "wokwi2corefsm.py")
-    if not a.sin_wokwi and os.path.exists(generador):
+    generador = os.path.join(raiz, "lib", "CoreFSM", "tools", "corefsm_gen.py")
+    if fuente != "manual" and os.path.exists(generador):
         print("Generando la tabla de hardware...")
         subprocess.run([sys.executable, generador,
-                        "-i", os.path.join(destino, "diagram.json"),
+                        "--project", destino,
                         "-o", os.path.join(destino, "include", "HardwareConfig.h")],
-                       check=False)
+                       check=True)
 
-    rel = os.path.relpath(destino, raiz).replace("\\", "/")
+    rel = ruta_desde(raiz, destino)
+    source_path = {
+        "csv": "hardware.csv", "json": "hardware.json",
+        "wokwi": "diagram.json", "manual": "include/HardwareConfig.h",
+    }[fuente]
     print("\nListo.\n"
           "  1. Abre la carpeta %s en VS Code (no la raiz del repo).\n"
-          "  2. Ctrl+Alt+B para compilar.\n"
-          "  3. Cuando funcione, dibuja tu circuito en wokwi.com y pega el\n"
-          "     resultado en %s/diagram.json\n" % (rel, rel))
+          "  2. Edita %s/%s para cambiar el cableado.\n"
+          "  3. Ctrl+Alt+B para compilar.\n" % (rel, rel, source_path))
 
 
 if __name__ == "__main__":

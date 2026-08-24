@@ -4,9 +4,8 @@
 ;  Copia este archivo a la raiz de tu proyecto como "platformio.ini".
 ;
 ;  La linea clave es extra_scripts: hace que PlatformIO ejecute el generador
-;  ANTES de compilar, de modo que HardwareConfig.h siempre esta al dia con el
-;  diagram.json. Dibujas en Wokwi, das a compilar, y el codigo ya usa los
-;  nombres y los pines nuevos.
+;  neutral ANTES de compilar. HardwareConfig.h queda al dia con hardware.csv,
+;  hardware.json o, si se elige ese adaptador, diagram.json de Wokwi.
 ; =============================================================================
 
 [env:nano]
@@ -16,7 +15,7 @@ framework     = arduino
 monitor_speed = 115200
 
 lib_deps      = file://lib/CoreFSM     ; o la ruta donde tengas la libreria
-extra_scripts = pre:tools/wokwi2corefsm.py
+extra_scripts = pre:lib/CoreFSM/tools/corefsm_gen.py
 
 build_flags =
   -Wall
@@ -31,7 +30,7 @@ board         = esp32dev
 framework     = arduino
 monitor_speed = 115200
 lib_deps      = file://lib/CoreFSM
-extra_scripts = pre:tools/wokwi2corefsm.py
+extra_scripts = pre:lib/CoreFSM/tools/corefsm_gen.py
 
 
 ; -----------------------------------------------------------------------------
@@ -39,15 +38,14 @@ extra_scripts = pre:tools/wokwi2corefsm.py
 ;
 ;    mi_proyecto/
 ;    ├── platformio.ini
-;    ├── diagram.json           <- el esquema de Wokwi
-;    ├── corefsm.json           <- ajustes finos (opcional)
+;    ├── hardware.csv           <- fuente predeterminada; JSON o Wokwi opcional
+;    ├── corefsm.json           <- seleccion de fuente y ajustes
 ;    ├── include/
 ;    │   └── HardwareConfig.h   <- lo genera el script, no lo edites
 ;    ├── src/
 ;    │   ├── main.cpp
 ;    │   └── MiProceso.h
 ;    ├── lib/
-;    │   └── CoreFSM/
-;    └── tools/
-;        └── wokwi2corefsm.py
+;    │   └── CoreFSM/           <- copia completa, incluido tools/corefsm_gen.py
+;    └── diagram.json           <- solo si eliges Wokwi
 ; -----------------------------------------------------------------------------

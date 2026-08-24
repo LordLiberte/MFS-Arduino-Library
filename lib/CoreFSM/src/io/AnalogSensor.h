@@ -43,9 +43,10 @@ class AnalogSensor : public IDevice {
      * filterAlpha: intensidad del filtro, 0 = sin filtro, 4-5 = habitual,
      *              8 = muy suave pero lento en responder. */
     AnalogSensor(uint8_t pin, uint8_t filterAlpha = 3)
-      : _pin(pin), _alpha(filterAlpha), _raw(0), _filtered(0),
-        _scaleMinRaw(0), _scaleMaxRaw(1023),
-        _scaleMinEng(0), _scaleMaxEng(1023),
+      : _pin(pin), _alpha(filterAlpha > 8 ? 8 : filterAlpha),
+        _raw(0), _filtered(0),
+        _scaleMinRaw(0), _scaleMaxRaw(CFSM_ADC_MAX),
+        _scaleMinEng(0), _scaleMaxEng(CFSM_ADC_MAX),
         _simValue(0) {}
 
     void begin() override {
@@ -104,7 +105,7 @@ class AnalogSensor : public IDevice {
       _scaleMinEng = engMin; _scaleMaxEng = engMax;
     }
 
-    void setFilter(uint8_t alpha) { _alpha = alpha; }
+    void setFilter(uint8_t alpha) { _alpha = alpha > 8 ? 8 : alpha; }
 
     /* -----------------------------------------------------------------------
      *  UMBRAL CON HISTERESIS
@@ -160,7 +161,7 @@ class AnalogSensor : public IDevice {
     uint16_t _thOn = 0xFFFF, _thOff = 0;
     bool     _thState = false;
 
-    uint16_t _validLo = 0, _validHi = 1023;
+    uint16_t _validLo = 0, _validHi = CFSM_ADC_MAX;
     uint16_t _minSeen = 0xFFFF, _maxSeen = 0;
 
     uint16_t _simValue;
