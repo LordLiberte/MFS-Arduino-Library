@@ -2,6 +2,7 @@
 #define COREFSM_DIGITAL_OUTPUT_H
 
 #include "IDevice.h"
+#include "DigitalBackend.h"
 #include "../logic/Timers.h"
 
 /* ===========================================================================
@@ -18,10 +19,10 @@
  *      utiles: fijo significa una cosa, parpadeo lento otra y destello rapido
  *      otra distinta. El operario los lee desde lejos sin acercarse al HMI.
  *
- *    - Temporizador de seguridad (watchdog), para las salidas que no deben
- *      quedarse activas indefinidamente. Si un programa se cuelga con una
- *      electrovalvula excitada, la salida se corta sola pasado el tiempo
- *      maximo configurado.
+ *    - Limite de tiempo activo, para las salidas que no deben permanecer
+ *      excitadas mientras el scan sigue funcionando. No puede cortar nada si
+ *      el firmware se bloquea por completo; ese fallo requiere un watchdog y
+ *      hardware de corte independientes.
  *
  *    - Forzado, por lo mismo que en las entradas: probar el cableado del
  *      armario sin necesidad de tener la secuencia terminada.
@@ -39,21 +40,31 @@ class DigitalOutput : public IDevice {
   public:
     /* pin      : pin fisico
      * activeLow: true si la carga se activa con nivel bajo (reles habituales) */
-    DigitalOutput(uint8_t pin, bool activeLow = false)
+    DigitalOutput(uint8_t pin, bool activeLow = false, bool safeValue = false)
       : _pin(pin), _activeLow(activeLow), _mode(OUT_OFF),
-        _physical(false), _simValue(false), _maxOnTimeMs(0), _onSince(0) {}
+        _physical(false), _simValue(false), _safeValue(safeValue),
+        _safeLatched(true), _maxOnTimeMs(0), _onSince(0) {}
+
+    DigitalOutput(IDigitalBackend& backend, uint8_t channel,
+                  bool activeLow = false, bool safeValue = false)
+      : _pin(backend, channel), _activeLow(activeLow), _mode(OUT_OFF),
+        _physical(false), _simValue(false), _safeValue(safeValue),
+        _safeLatched(true), _maxOnTimeMs(0), _onSince(0) {}
 
     void begin() override {
-      pinMode(_pin, OUTPUT);
+      _pin.configure(OUTPUT);
       _mode = OUT_OFF;
-      applyPhysical(false);
+      _safeLatched = true;
+      applyPhysical(_safeValue);
     }
 
     /* Fase PAA. Calcula el nivel que toca segun el modo y lo escribe. */
     void writeOutputs() override {
       bool desired;
 
-      if (_forced) {
+      if (_safeLatched) {
+        desired = _safeValue;
+      } else if (_forced) {
         desired = _simValue;
       } else {
         switch (_mode) {
@@ -81,7 +92,11 @@ class DigitalOutput : public IDevice {
        *  flanco de apagado seguido de un encendido. Mantener turnOn() en cada
        *  scan -que es lo normal- no lo rearma.
        * -------------------------------------------------------------------- */
-      if (_maxOnTimeMs > 0) {
+      /* El valor seguro configurado tiene prioridad. En particular, una
+       * ventilacion cuyo estado seguro sea ON no puede apagarse por heredar
+       * el cronometro de una orden anterior. El limite vuelve a contar cuando
+       * llega un mando nuevo y se abandona el estado seguro. */
+      if (!_safeLatched && _maxOnTimeMs > 0) {
         if (_timedOut) {
           desired = false;
         } else if (desired) {
@@ -102,18 +117,37 @@ class DigitalOutput : public IDevice {
     /* El enclavamiento del watchdog solo se rearma en el FLANCO de encendido:
      * hay que apagar y volver a encender. Llamar a turnOn() en cada vuelta del
      * scan -que es la forma habitual de escribir una salida- no lo levanta. */
-    void turnOn()  { if (_mode == OUT_OFF) _timedOut = false; _mode = OUT_ON;  }
-    void turnOff() { _mode = OUT_OFF; _timedOut = false; }
+    void turnOn()  {
+      bool risingCommand = (_mode == OUT_OFF);
+      _safeLatched = false;
+      if (risingCommand) {
+        _timedOut = false;
+        _onSince = cfsm_millis();
+      }
+      _mode = OUT_ON;
+    }
+    void turnOff() { _safeLatched = false; _mode = OUT_OFF; _timedOut = false; }
     void set(bool v) { v ? turnOn() : turnOff(); }
     void setMode(OutputMode m) {
-      if (_mode == OUT_OFF && m != OUT_OFF) _timedOut = false;
+      bool risingCommand = (_mode == OUT_OFF && m != OUT_OFF);
+      _safeLatched = false;
+      if (risingCommand) {
+        _timedOut = false;
+        _onSince = cfsm_millis();
+      }
       if (m == OUT_OFF) _timedOut = false;
       _mode = m;
     }
 
     /* Rearme explicito del watchdog, para un boton de "reponer salidas". */
     void clearTimeout() { _timedOut = false; }
-    void toggle()          { _mode = (_mode == OUT_OFF) ? OUT_ON : OUT_OFF; }
+    void toggle()          {
+      bool risingCommand = (_mode == OUT_OFF);
+      _safeLatched = false;
+      _mode = risingCommand ? OUT_ON : OUT_OFF;
+      _timedOut = false;
+      if (risingCommand) _onSince = cfsm_millis();
+    }
 
     /* -----------------------------------------------------------------------
      *  CONSULTA
@@ -122,7 +156,8 @@ class DigitalOutput : public IDevice {
     bool       isActive()  const { return _physical; }   /* nivel real ahora mismo */
     OutputMode mode()      const { return _mode; }
     bool       hasTimedOut() const { return _timedOut; }
-    uint8_t    pin()       const { return _pin; }
+    uint8_t    pin()       const { return _pin.channel; }
+    bool       usesNativePin() const { return _pin.isNative(); }
 
     /* -----------------------------------------------------------------------
      *  CONFIGURACION
@@ -131,12 +166,33 @@ class DigitalOutput : public IDevice {
      * Pontelo a las electrovalvulas, resistencias y todo lo que pueda causar
      * dano si se queda pegado. */
     void setMaxOnTime(cfsm_time_t ms) { _maxOnTimeMs = ms; }
+    void setSafeValue(bool value) {
+      _safeValue = value;
+      if (_safeLatched) applyPhysical(_safeValue);
+    }
+    bool safeValue() const { return _safeValue; }
 
-    void force(bool value) { _forced = true; _simValue = value; }
+    void force(bool value) {
+      bool risingCommand = value && (!_forced || !_simValue);
+      _safeLatched = false;
+      _forced = true;
+      _simValue = value;
+      if (risingCommand) _onSince = cfsm_millis();
+    }
+
+    void enterSafeState() override {
+      _mode = OUT_OFF;
+      _forced = false;
+      _simValue = _safeValue;
+      _safeLatched = true;
+      _timedOut = false;
+      _blink.update(false);
+      applyPhysical(_safeValue);
+    }
 
     void describe(Print& out) const {
       out.print('[');
-      if (_name) out.print(_name); else { out.print(CFSM_FSTR("DO")); out.print(_pin); }
+      if (_name) out.print(_name); else { out.print(CFSM_FSTR("DO")); out.print(_pin.channel); }
       out.print(CFSM_FSTR("]="));
       out.print(_physical ? '1' : '0');
       if (_mode >= OUT_BLINK_SLOW) out.print(CFSM_FSTR(" (intermitente)"));
@@ -145,11 +201,13 @@ class DigitalOutput : public IDevice {
     }
 
   private:
-    uint8_t     _pin;
+    DigitalPin  _pin;
     bool        _activeLow;
     OutputMode  _mode;
     bool        _physical;
     bool        _simValue;
+    bool        _safeValue;
+    bool        _safeLatched;
     bool        _timedOut = false;
     cfsm_time_t _maxOnTimeMs;
     cfsm_time_t _onSince;
@@ -157,7 +215,7 @@ class DigitalOutput : public IDevice {
 
     void applyPhysical(bool logical) {
       _physical = logical;
-      digitalWrite(_pin, (logical != _activeLow) ? HIGH : LOW);
+      _pin.write(logical != _activeLow);
     }
 };
 
@@ -209,6 +267,12 @@ class AnalogOutput : public IDevice {
     void setRamp(uint8_t stepPerMs) { _rampStep = stepPerMs; }
 
     void force(uint8_t v) { _forced = true; _target = _current = v; }
+
+    void enterSafeState() override {
+      _forced = false;
+      _target = _current = 0;
+      apply();
+    }
 
   private:
     uint8_t     _pin;

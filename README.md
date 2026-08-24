@@ -1,187 +1,175 @@
-# MFS-Arduino-Library
+# MFS Arduino Library
 
-[![Compilar](https://github.com/LordLiberte/MFS-Arduino-Library/actions/workflows/compilar.yml/badge.svg)](https://github.com/LordLiberte/MFS-Arduino-Library/actions/workflows/compilar.yml)
+[![Compilar y probar](https://github.com/LordLiberte/MFS-Arduino-Library/actions/workflows/compilar.yml/badge.svg)](https://github.com/LordLiberte/MFS-Arduino-Library/actions/workflows/compilar.yml)
+[![Licencia MIT](https://img.shields.io/badge/licencia-MIT-blue.svg)](LICENSE)
 
-Repositorio de automatización sobre Arduino. Contiene **CoreFSM**, una librería
-que traslada el modelo de programación de un autómata industrial —ciclo de scan,
-imagen de proceso, bloques funcionales, secuencias por pasos, palabras de mando
-y estado, recetas y alarmas— a C++ sobre microcontrolador. Y contiene los
-proyectos que la usan.
+**CoreFSM 2.2** es un framework de automatización para Arduino y otros
+microcontroladores. Organiza el firmware como un autómata industrial: captura
+de entradas, lógica determinista y aplicación de salidas en cada scan, con
+máquinas de estados, secuencias, recetas, alarmas y diagnóstico.
 
----
+La lógica no depende del esquema ni de números de pin. El hardware puede
+definirse con **CSV**, **JSON**, tablas C++ manuales o, de forma opcional, un
+`diagram.json` de Wokwi. Todos los caminos producen la misma API simbólica:
 
-## Estructura
-
+```cpp
+HW.Pulsador_Marcha.hasRisen();
+HW.Valvula.set(true);
 ```
+
+> CoreFSM es software de control general, no software de seguridad certificado.
+> Lee [SAFETY.md](SAFETY.md) antes de conectar actuadores.
+
+## Qué aporta
+
+- Ciclo PAE → lógica → PAA sin `delay()` ni memoria dinámica.
+- Bloques y secuencias con estados, pasos, pausas, timeouts y contadores.
+- Entradas con antirrebote y flancos; salidas con inversión, modos y watchdog.
+- Recetas, configuración persistente, alarmas y telemetría.
+- Tabla de hardware generada desde una fuente neutral o escrita a mano.
+- GPIO local y expansores MCP23017 con una captura/escritura agrupada por scan.
+- Imágenes digitales entre placas sobre cualquier `Stream`, con COBS, CRC,
+  secuencia, sesión y timeout.
+- Pruebas host, pruebas del generador y compilación automática en GitHub.
+
+## Inicio rápido
+
+Necesitas VS Code con PlatformIO o Arduino IDE. El proyecto de referencia está
+en [`projects/00_TestLibrary`](projects/00_TestLibrary):
+
+1. Abre esa carpeta en VS Code.
+2. Conecta un pulsador entre D2 y GND; el ejemplo usa el LED integrado D13.
+3. Compila con `Ctrl+Alt+B` y carga con `Ctrl+Alt+U`.
+
+Para crear una máquina nueva desde la raíz del repositorio:
+
+```bash
+python lib/CoreFSM/tools/nuevo_proyecto.py 01_cinta
+python lib/CoreFSM/tools/nuevo_proyecto.py 02_brazo --placa esp32
+```
+
+El modo predeterminado crea `hardware.csv`. También están disponibles:
+
+```bash
+python lib/CoreFSM/tools/nuevo_proyecto.py 03_json --fuente json
+python lib/CoreFSM/tools/nuevo_proyecto.py 04_wokwi --fuente wokwi
+python lib/CoreFSM/tools/nuevo_proyecto.py 05_manual --fuente manual
+```
+
+## Una fuente de hardware, varios adaptadores
+
+```text
+ hardware.csv ─┐
+ hardware.json ├─> corefsm_gen.py ─> HardwareConfig.h ─> HW.Nombre
+ diagram.json ─┘        opcional
+
+ HardwareConfig.h manual ───────────────────────────────> HW.Nombre
+```
+
+El generador busca `hardware.csv`, `hardware.json` y `diagram.json`, en ese
+orden, salvo que `corefsm.json` seleccione una fuente. Wokwi ya no es un
+requisito: queda como adaptador y simulador gráfico.
+
+Ejemplo CSV:
+
+```csv
+node,name,role,target,pullup,active_low,debounce_ms,filter,safe
+main,Marcha,DI,gpio.2,true,,20,,
+main,Valvula,DO,EXP1.8,,false,,,false
+main,Presion,AI,A0,,,,3,
+```
+
+`EXP1.8` puede apuntar a un MCP23017 declarado en `corefsm.json`. Consulta
+[fuentes de hardware](lib/CoreFSM/docs/hardware/sources.md),
+[asignación manual](lib/CoreFSM/docs/hardware/manual-pinmap.md) y
+[expansores](lib/CoreFSM/docs/hardware/io-expanders.md).
+
+## Ciclo de scan
+
+```cpp
+void loop() {
+  HW.readInputs();
+  leerEntradas();
+  manager.updateAll();
+  escribirSalidas();
+  HW.setSafetyInterlock(manager.isEmergencyStop());
+  HW.writeOutputs();
+}
+```
+
+`setEmergencyStop()` conserva su nombre por compatibilidad, pero implementa un
+**interbloqueo de software**. El enlace con `HW.setSafetyInterlock()` fuerza el
+valor seguro configurado de cada salida; no reemplaza relés, PLC ni circuitos
+de seguridad apropiados.
+
+## Más E/S y varias placas
+
+Para ampliar E/S local, `Mcp23017Backend` mantiene una imagen de 16 bits y
+agrupa las transacciones I2C. Para distribuir lógica, `PacketLink` y `RemoteIO`
+intercambian snapshots direccionados sin acoplar la red a una máquina de
+estados concreta.
+
+El orden recomendado con red es:
+
+```cpp
+red.readInputs();
+HW.readInputs();
+manager.updateAll();
+HW.writeOutputs();
+red.writeOutputs();
+```
+
+No existe una fotografía global instantánea: todo dato remoto tiene edad y
+validez. Consulta la [guía multinodo](lib/CoreFSM/docs/net/multi-controller.md)
+y el ejemplo [`09_Dos_Nodos_UART`](lib/CoreFSM/examples/09_Dos_Nodos_UART).
+
+## Ejemplos
+
+| Nº | Tema |
+|---:|---|
+| 01 | primer bloque y ciclo de scan |
+| 02 | proceso secuencial de soldadura |
+| 03 | cinta, baliza y tabla simbólica |
+| 04 | dos estaciones con handshake local |
+| 05 | recetas, EEPROM y teach-in |
+| 06 | robot de cuatro ruedas |
+| 07 | seguimiento visual no bloqueante |
+| 08 | esperas, takt y watchdog de scan |
+| 09 | dos nodos por UART con timeout |
+| 10 | expansor MCP23017 agrupado |
+
+Están en [`lib/CoreFSM/examples`](lib/CoreFSM/examples).
+
+## Organización del repositorio
+
+```text
 MFS-Arduino-Library/
-│
-├── lib/
-│   └── CoreFSM/              LA LIBRERÍA. Una sola copia, compartida.
-│       ├── src/              el código
-│       ├── examples/         7 ejemplos, de lo básico al robot
-│       ├── tools/            los generadores (ver más abajo)
-│       └── README.md         la guía completa
-│
-├── projects/                 TUS MÁQUINAS. Una carpeta por proyecto.
-│   └── 00_TestLibrary/       proyecto de prueba, funciona tal cual
-│       ├── platformio.ini    configuración: placa, rutas a la librería
-│       ├── diagram.json      el esquema de Wokwi (la fuente de verdad)
-│       ├── corefsm.json      ajustes finos del generador
-│       ├── wokwi.toml        para simular dentro de VS Code
-│       ├── include/
-│       │   └── HardwareConfig.h    GENERADO, no lo edites
-│       └── src/
-│           ├── main.cpp      el ciclo de scan
-│           └── Proceso.h     la lógica. Aquí va tu trabajo.
-│
-├── .github/workflows/
-│   └── compilar.yml          CI: compila todo en cada push
-│
-├── .vscode/extensions.json   extensiones recomendadas
-├── .gitignore
-└── LICENSE
+├── lib/CoreFSM/
+│   ├── src/              biblioteca pública
+│   ├── docs/             referencia por módulos
+│   ├── examples/         sketches compilables
+│   ├── tests/            regresión en PC
+│   └── tools/            generador y plantillas
+├── projects/             un firmware compilable por máquina o nodo
+├── .github/workflows/    compilación y pruebas automáticas
+├── SAFETY.md
+├── CHANGELOG.md
+└── CONTRIBUTING.md
 ```
 
-**La regla de oro:** una copia de la librería, muchos proyectos. Arreglas un
-fallo en `lib/CoreFSM/` y queda arreglado para todos a la vez. La contrapartida
-es la misma moneda: si lo rompes, lo rompes para todos. Por eso está el CI.
-
----
-
-## Empezar
-
-Necesitas **VS Code** con la extensión **PlatformIO IDE**. Nada más: PlatformIO
-se descarga el compilador solo la primera vez.
-
-1. Abre en VS Code la carpeta **`projects/00_TestLibrary`** (no la raíz del
-   repositorio: PlatformIO busca el `platformio.ini` en la raíz de lo que abras).
-2. `Ctrl+Alt+B` para compilar. La primera vez tarda unos minutos.
-3. Debe salir `SUCCESS`, con `RAM: 24.1%` y `Flash: 30.9%`.
-
-Ese proyecto no necesita ningún componente: usa el LED que ya lleva la placa.
-Si compila y parpadea, todo está en su sitio.
-
-| Atajo | Acción |
-|---|---|
-| `Ctrl+Alt+B` | Compilar |
-| `Ctrl+Alt+U` | Compilar y cargar a la placa |
-| `Ctrl+Alt+S` | Monitor serie |
-
----
-
-## Crear un proyecto nuevo
-
-Desde la terminal, **en la raíz del repositorio**:
-
-```bash
-python lib/CoreFSM/tools/nuevo_proyecto.py 02_cinta
-python lib/CoreFSM/tools/nuevo_proyecto.py 03_brazo --placa esp32
-```
-
-Placas: `nano` (por defecto), `uno`, `mega`, `esp32`.
-
-Crea la carpeta con todo dentro y las rutas ya correctas, y deja el proyecto
-compilando desde el primer momento. No copies proyectos a mano: las dos rutas
-relativas del `platformio.ini` son justo lo que se olvida cambiar, y el error
-que produce no se parece en nada a la causa.
-
----
-
-## El esquema manda
-
-```
-   diagram.json  (lo dibujas en wokwi.com)
-        │
-        │  se ejecuta solo al compilar
-        ▼
-   include/HardwareConfig.h
-        │
-        ▼
-   HW.Pulsador_Marcha.hasRisen()
-```
-
-Ponle nombre a cada componente en Wokwi: **el `id` del componente se convierte
-en el nombre de la variable**. Mueve un cable del pin 2 al 8 y recompila: el
-software lee el pin 8 sin que toques una línea.
-
-Prefijos para forzar el tipo de señal cuando el componente no lo deja claro:
-`DI_` entrada digital, `DO_` salida digital, `AI_` entrada analógica.
-
-Lo que el esquema no puede expresar —antirrebote de un sensor concreto, un relé
-activo a nivel bajo, un pin a ignorar— va en `corefsm.json`.
-
----
-
-## Simular sin placa
-
-Instala la extensión **Wokwi for VS Code**. Compila, y luego `Ctrl+Mayús+P` →
-*Wokwi: Start Simulator*. Se abre el circuito del `diagram.json` con sus botones
-y LEDs, y el monitor serie funciona igual que con la placa real.
-
----
-
-## Integración continua
-
-Cada push a cualquier rama dispara la compilación en GitHub. No hay que
-registrar nada: el CI busca `projects/*/platformio.ini` y compila lo que
-encuentre, así que los proyectos nuevos entran solos.
-
-Tres trabajos:
-
-| Trabajo | Qué vigila |
-|---|---|
-| `Buscar proyectos` | localiza los proyectos y comprueba mayúsculas de carpetas |
-| `<cada proyecto>` | los compila **en paralelo**, sin pararse en el primer fallo |
-| `Ejemplos de la libreria` | los 7 ejemplos: avisa si rompes algo que aún no usas |
-
-En el resumen de cada ejecución sale el consumo de memoria de cada proyecto.
-
-Para que `main` no pueda romperse: **Settings → Branches → Add rule** sobre
-`main`, y marca *Require status checks to pass*.
-
----
-
-## Flujo de trabajo con ramas
-
-- **Carpeta** para *qué*: cada máquina es una carpeta en `projects/`.
-- **Rama** para *y si…*: un cambio del que no estás seguro, o que te va a dejar
-  el código sin compilar un rato.
-
-```
-lib/handshake-v2      toca la librería  -> compila varios proyectos antes de fusionar
-proy/robot-vision     toca un proyecto  -> con ese basta
-fix/timeout-pausa
-```
-
-Cambios pequeños y seguros van directos a `main` sin ceremonia. Montar el ritual
-de un equipo de veinte personas trabajando solo es puro peaje.
-
----
-
-## Aviso sobre mayúsculas
-
-`lib` y `projects` van **en minúsculas**. En Windows da igual; en Linux —donde
-corre el CI— `Lib` y `lib` son carpetas distintas, así que un fallo de
-mayúsculas te funciona en local y solo se rompe en GitHub.
-
-Git en Windows tampoco detecta un cambio de solo mayúsculas, así que si pasa hay
-que renombrar en dos pasos:
-
-```bash
-git mv Lib lib_tmp
-git mv lib_tmp lib
-```
-
-El CI lo comprueba y te lo dice claro si se cuela.
-
----
+Una sola copia de `lib/CoreFSM` alimenta todos los proyectos. El CI descubre
+automáticamente cada `projects/*/platformio.ini`, compila los ejemplos y ejecuta
+las pruebas C++ y Python; además crea desde cero y compila un proyecto ESP32.
 
 ## Documentación
 
-- **Guía completa de la librería**: [`lib/CoreFSM/README.md`](lib/CoreFSM/README.md)
-- **Herramientas**: [`lib/CoreFSM/tools/README.md`](lib/CoreFSM/tools/README.md)
-- **Ejemplos**: [`lib/CoreFSM/examples/`](lib/CoreFSM/examples/) — empieza por el 01
+- [Guía de uso de CoreFSM](lib/CoreFSM/README.md)
+- [Referencia técnica por módulos](lib/CoreFSM/docs/README.md)
+- [Herramientas y formatos](lib/CoreFSM/tools/README.md)
+- [Pruebas](lib/CoreFSM/tests/README.md)
+- [Historial de cambios](CHANGELOG.md)
+- [Cómo contribuir](CONTRIBUTING.md)
 
 ## Licencia
 
-MIT. Ver [LICENSE](LICENSE).
+MIT. Consulta [LICENSE](LICENSE).

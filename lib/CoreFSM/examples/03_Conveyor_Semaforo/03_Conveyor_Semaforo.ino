@@ -31,7 +31,7 @@
 #include "CintaTransportadora.h"
 
 /* Crea la instancia global HW con todos los objetos de la tabla. */
-CFSM_DEFINE_HARDWARE
+CFSM_DEFINE_HARDWARE;
 
 /* --- Bloques de logica ---------------------------------------------------- */
 BlockManager<4>     manager;

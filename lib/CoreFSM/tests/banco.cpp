@@ -1,4 +1,4 @@
-/* Banco de pruebas de CoreFSM 2.1 sobre PC. El reloj es una variable, asi que
+/* Banco de pruebas de CoreFSM 2.2 sobre PC. El reloj es una variable, asi que
  * se simulan horas de maquina en milisegundos y de forma reproducible. */
 #include <Arduino.h>
 #include <CoreFSM.h>
@@ -72,7 +72,7 @@ class ProcesoViejo : public SequenceBlock {
         break;
       case V_TRABAJO:
         salida = true;
-        if (getTimeInStep() >= tiempoTrabajoMs) { salida = false; completeCycle(); setStep(V_REPOSO); }
+        if (getTimeInStep() >= tiempoTrabajoMs) { salida = false; completeCycle(V_REPOSO); }
         break;
     }
   }
@@ -133,7 +133,7 @@ class Olvidadizo : public SequenceBlock {
 };
 
 int main() {
-  printf("=== BANCO DE PRUEBAS CoreFSM 2.1 ===\n\n");
+  printf("=== BANCO DE PRUEBAS CoreFSM 2.2 ===\n\n");
 
   /* ---- P1: espera declarada de 10 minutos, sin falsa alarma ---- */
   { printf("P1  Espera declarada larga (10 min) sin falsa alarma\n");
@@ -164,6 +164,7 @@ int main() {
     v.ordenMarcha = true; avanzar(v, 2);
     v.ordenMarcha = false; avanzar(v, 2000);
     CHECK(v.getCycleCount() == 1, "y sigue produciendo igual que antes");
+    CHECK(v.ST.stw.done, "done debe sobrevivir al cierre de ciclo");
     CHECK(!v.isFaulted(), "sin alarmas durante el ciclo");
   }
 

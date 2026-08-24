@@ -34,8 +34,8 @@
  *
  *  COMO SE USA
  *  -----------
- *  En tu proyecto, crea HardwareConfig.h (o deja que lo genere el script de
- *  Wokwi) con este contenido:
+ *  En tu proyecto, crea HardwareConfig.h (o deja que corefsm_gen.py lo genere
+ *  desde CSV, JSON o Wokwi) con este contenido:
  *
  *      #ifndef HARDWARE_CONFIG_H
  *      #define HARDWARE_CONFIG_H
@@ -60,7 +60,7 @@
  *  Y en el .ino:
  *
  *      #include "HardwareConfig.h"
- *      CFSM_DEFINE_HARDWARE          // crea la instancia global HW
+ *      CFSM_DEFINE_HARDWARE;         // crea la instancia global HW
  *
  *      void setup() { HW.begin(); }
  *      void loop() {
@@ -93,8 +93,10 @@
  *  Por eso solo se puede incluir desde el HardwareConfig.h del proyecto, y
  *  siempre despues de declarar las tablas.
  * ------------------------------------------------------------------------ */
-#if !defined(CFSM_TABLE_DI) && !defined(CFSM_TABLE_DO) && !defined(CFSM_TABLE_AI)
-  #error "io/IOTable.h se incluye desde tu HardwareConfig.h, DESPUES de definir CFSM_TABLE_DI / CFSM_TABLE_DO / CFSM_TABLE_AI. No lo incluyas suelto."
+#if !defined(CFSM_TABLE_DI) && !defined(CFSM_TABLE_DO) && !defined(CFSM_TABLE_AI) && \
+    !defined(CFSM_TABLE_BACKEND) && !defined(CFSM_TABLE_DI_BACKEND) && \
+    !defined(CFSM_TABLE_DO_BACKEND) && !defined(CFSM_TABLE_DO_SAFE)
+  #error "io/IOTable.h se incluye desde HardwareConfig.h despues de definir sus tablas CFSM_TABLE_*. No lo incluyas suelto."
 #endif
 
 /* Tablas vacias por defecto, para que no haga falta declarar las tres. */
@@ -107,6 +109,18 @@
 #ifndef CFSM_TABLE_AI
   #define CFSM_TABLE_AI(ROW)
 #endif
+#ifndef CFSM_TABLE_BACKEND
+  #define CFSM_TABLE_BACKEND(ROW)
+#endif
+#ifndef CFSM_TABLE_DI_BACKEND
+  #define CFSM_TABLE_DI_BACKEND(ROW)
+#endif
+#ifndef CFSM_TABLE_DO_BACKEND
+  #define CFSM_TABLE_DO_BACKEND(ROW)
+#endif
+#ifndef CFSM_TABLE_DO_SAFE
+  #define CFSM_TABLE_DO_SAFE(ROW)
+#endif
 
 /* ---------------------------------------------------------------------------
  *  Pasada 1: contar filas
@@ -116,10 +130,19 @@
  * ------------------------------------------------------------------------ */
 #define CFSM_ROW_COUNT(...) +1
 
-static const uint8_t CFSM_DI_COUNT = 0 CFSM_TABLE_DI(CFSM_ROW_COUNT);
-static const uint8_t CFSM_DO_COUNT = 0 CFSM_TABLE_DO(CFSM_ROW_COUNT);
-static const uint8_t CFSM_AI_COUNT = 0 CFSM_TABLE_AI(CFSM_ROW_COUNT);
-static const uint8_t CFSM_IO_COUNT = CFSM_DI_COUNT + CFSM_DO_COUNT + CFSM_AI_COUNT;
+static const uint16_t CFSM_DI_COUNT = 0 CFSM_TABLE_DI(CFSM_ROW_COUNT)
+                                        CFSM_TABLE_DI_BACKEND(CFSM_ROW_COUNT);
+static const uint16_t CFSM_DO_COUNT = 0 CFSM_TABLE_DO(CFSM_ROW_COUNT)
+                                        CFSM_TABLE_DO_SAFE(CFSM_ROW_COUNT)
+                                        CFSM_TABLE_DO_BACKEND(CFSM_ROW_COUNT);
+static const uint16_t CFSM_AI_COUNT = 0 CFSM_TABLE_AI(CFSM_ROW_COUNT);
+static const uint16_t CFSM_IO_COUNT = CFSM_DI_COUNT + CFSM_DO_COUNT + CFSM_AI_COUNT;
+static const uint16_t CFSM_BACKEND_COUNT = 0 CFSM_TABLE_BACKEND(CFSM_ROW_COUNT);
+
+static_assert(CFSM_IO_COUNT <= 255,
+              "IOTable admite como maximo 255 dispositivos");
+static_assert(CFSM_BACKEND_COUNT <= 255,
+              "IOTable admite como maximo 255 backends");
 
 /* ---------------------------------------------------------------------------
  *  Pasada 2: declarar los objetos
@@ -133,6 +156,18 @@ static const uint8_t CFSM_IO_COUNT = CFSM_DI_COUNT + CFSM_DO_COUNT + CFSM_AI_COU
 #define CFSM_ROW_DECL_AI(pin, name, filter) \
   AnalogSensor name{pin, filter};
 
+#define CFSM_ROW_DECL_BACKEND(type, name, ...) \
+  type name{__VA_ARGS__};
+
+#define CFSM_ROW_DECL_DI_BACKEND(backend, channel, name, pullup, debounce) \
+  DigitalSensor name{backend, channel, pullup, debounce};
+
+#define CFSM_ROW_DECL_DO_SAFE(pin, name, activeLow, safeValue) \
+  DigitalOutput name{pin, activeLow, safeValue};
+
+#define CFSM_ROW_DECL_DO_BACKEND(backend, channel, name, activeLow, safeValue) \
+  DigitalOutput name{backend, channel, activeLow, safeValue};
+
 /* ---------------------------------------------------------------------------
  *  Pasada 3: registrar en el gestor y poner el nombre para el diagnostico
  * ------------------------------------------------------------------------ */
@@ -145,10 +180,25 @@ static const uint8_t CFSM_IO_COUNT = CFSM_DI_COUNT + CFSM_DO_COUNT + CFSM_AI_COU
 #define CFSM_ROW_REG_AI(pin, name, filter) \
   devices.registerDevice(&name, F(#name));
 
+#define CFSM_ROW_REG_BACKEND(type, name, ...) \
+  devices.registerBackend(&name);
+
+#define CFSM_ROW_REG_DI_BACKEND(backend, channel, name, pullup, debounce) \
+  devices.registerDevice(&name, F(#name));
+
+#define CFSM_ROW_REG_DO_SAFE(pin, name, activeLow, safeValue) \
+  devices.registerDevice(&name, F(#name));
+
+#define CFSM_ROW_REG_DO_BACKEND(backend, channel, name, activeLow, safeValue) \
+  devices.registerDevice(&name, F(#name));
+
 /* ---------------------------------------------------------------------------
  *  Pasada 4: volcado de diagnostico
  * ------------------------------------------------------------------------ */
 #define CFSM_ROW_DESC(pin, name, ...) \
+  { name.describe(out); out.print(' '); }
+
+#define CFSM_ROW_DESC_BACKEND(backend, channel, name, ...) \
   { name.describe(out); out.print(' '); }
 
 /* ===========================================================================
@@ -156,18 +206,28 @@ static const uint8_t CFSM_IO_COUNT = CFSM_DI_COUNT + CFSM_DO_COUNT + CFSM_AI_COU
  *  Todos los objetos de campo del proyecto, mas su imagen de proceso.
  * ======================================================================== */
 struct CfsmHardware {
-  /* --- Objetos generados a partir de la tabla --- */
+  /* Los backends se declaran antes que los puntos que los referencian. */
+  CFSM_TABLE_BACKEND(CFSM_ROW_DECL_BACKEND)
+
+  /* --- Objetos generados a partir de las tablas --- */
   CFSM_TABLE_DI(CFSM_ROW_DECL_DI)
+  CFSM_TABLE_DI_BACKEND(CFSM_ROW_DECL_DI_BACKEND)
   CFSM_TABLE_DO(CFSM_ROW_DECL_DO)
+  CFSM_TABLE_DO_SAFE(CFSM_ROW_DECL_DO_SAFE)
+  CFSM_TABLE_DO_BACKEND(CFSM_ROW_DECL_DO_BACKEND)
   CFSM_TABLE_AI(CFSM_ROW_DECL_AI)
 
-  /* Dimensionado exacto: no sobra ni falta un puntero. */
-  DeviceManager<CFSM_IO_COUNT ? CFSM_IO_COUNT : 1> devices;
+  /* Dimensionado exacto de dispositivos y backends. */
+  DeviceManager<CFSM_IO_COUNT ? CFSM_IO_COUNT : 1, CFSM_BACKEND_COUNT> devices;
 
   /* Configura todos los pines y registra todos los objetos. */
   void begin() {
+    CFSM_TABLE_BACKEND(CFSM_ROW_REG_BACKEND)
     CFSM_TABLE_DI(CFSM_ROW_REG_DI)
+    CFSM_TABLE_DI_BACKEND(CFSM_ROW_REG_DI_BACKEND)
     CFSM_TABLE_DO(CFSM_ROW_REG_DO)
+    CFSM_TABLE_DO_SAFE(CFSM_ROW_REG_DO_SAFE)
+    CFSM_TABLE_DO_BACKEND(CFSM_ROW_REG_DO_BACKEND)
     CFSM_TABLE_AI(CFSM_ROW_REG_AI)
     devices.beginAll();
   }
@@ -178,6 +238,11 @@ struct CfsmHardware {
   /* PAA: volcado de todas las salidas. Ultima linea del loop(). */
   void writeOutputs() { devices.writeAllOutputs(); }
 
+  /* Interbloqueo global de software. No sustituye una parada cableada. */
+  void setSafetyInterlock(bool active) { devices.setSafetyInterlock(active); }
+  bool isSafetyInterlocked() const { return devices.isSafetyInterlocked(); }
+  bool allBackendsHealthy() const { return devices.allBackendsHealthy(); }
+
   /* Quita todos los forzados. */
   void releaseAllForces() { devices.releaseAllForces(); }
   bool hasAnyForce() const { return devices.hasAnyForce(); }
@@ -186,15 +251,21 @@ struct CfsmHardware {
    * al recibir un caracter por el puerto serie), nunca en cada scan. */
   void printIoTable(Print& out) {
     out.println(F("---- IMAGEN DE PROCESO ----"));
-    out.print(F(" DI: ")); CFSM_TABLE_DI(CFSM_ROW_DESC) out.println();
-    out.print(F(" DO: ")); CFSM_TABLE_DO(CFSM_ROW_DESC) out.println();
+    out.print(F(" DI: ")); CFSM_TABLE_DI(CFSM_ROW_DESC)
+                             CFSM_TABLE_DI_BACKEND(CFSM_ROW_DESC_BACKEND) out.println();
+    out.print(F(" DO: ")); CFSM_TABLE_DO(CFSM_ROW_DESC)
+                             CFSM_TABLE_DO_SAFE(CFSM_ROW_DESC)
+                             CFSM_TABLE_DO_BACKEND(CFSM_ROW_DESC_BACKEND) out.println();
     out.print(F(" AI: ")); CFSM_TABLE_AI(CFSM_ROW_DESC) out.println();
     if (hasAnyForce()) out.println(F(" *** HAY SENALES FORZADAS ***"));
+    if (!allBackendsHealthy()) out.println(F(" *** ERROR EN BACKEND DE E/S ***"));
     out.println(F("---------------------------"));
   }
 };
 
-/* Instancia global. Ponla UNA sola vez, en el .ino. */
+/* Instancia global. Ponla UNA sola vez, en el .ino. Escribe tambien el ';' en
+ * la invocacion: es redundante para C++, pero evita un falso prototipo del
+ * conversor .ino cuando setup() aparece justo despues. */
 #define CFSM_DEFINE_HARDWARE  CfsmHardware HW;
 
 extern CfsmHardware HW;

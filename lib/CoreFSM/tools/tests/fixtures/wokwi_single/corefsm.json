@@ -1,0 +1,5 @@
+{
+  "defaults": {"debounce": 20},
+  "pins": {},
+  "ignore": []
+}

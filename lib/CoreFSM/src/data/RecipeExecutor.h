@@ -54,6 +54,9 @@ enum RecipeStepPhase : uint16_t {
 template <uint8_t NUM_AXES = CFSM_RECIPE_AXES>
 class RecipeExecutor : public SequenceBlock {
   public:
+    static_assert(NUM_AXES <= CFSM_RECIPE_AXES,
+                  "NUM_AXES no puede superar CFSM_RECIPE_AXES");
+
     RecipeExecutor() : _recipe(nullptr), _index(0), _toolMask(0) {
       for (uint8_t i = 0; i < NUM_AXES; i++) _axes[i] = nullptr;
     }
@@ -65,7 +68,10 @@ class RecipeExecutor : public SequenceBlock {
     }
 
     /* Apunta a la receta que se va a ejecutar. Normalmente &bank.active. */
-    void setRecipe(RecipeRecord* r) { _recipe = r; }
+    void setRecipe(RecipeRecord* r) {
+      _recipe = r;
+      setCycleTimeout(r ? (cfsm_time_t)r->header.maxCycleMs : 0);
+    }
 
     RecipeRecord* recipe() const { return _recipe; }
     uint8_t       stepIndex() const { return _index; }
@@ -119,7 +125,11 @@ class RecipeExecutor : public SequenceBlock {
           /* Un eje sin referenciar no sabe donde esta: sus coordenadas no
            * significan nada y moverlo seria peligroso. */
           for (uint8_t i = 0; i < NUM_AXES; i++) {
-            if (s.axis[i].enabled && _axes[i] && !_axes[i]->isHomed()) {
+            if (s.axis[i].enabled && !_axes[i]) {
+              fault(CFSM_ERR_RECIPE_INVALID);
+              return;
+            }
+            if (s.axis[i].enabled && !_axes[i]->isHomed()) {
               fault(CFSM_ERR_NOT_HOMED);
               return;
             }
@@ -213,8 +223,7 @@ class RecipeExecutor : public SequenceBlock {
         case RX_FINISHED:
           holdAllAxes();
           _index = 0;
-          completeCycle();      /* cuenta la pieza y decide si encadena otra */
-          setStep(RX_IDLE);
+          completeCycle(RX_IDLE); /* cuenta la pieza y decide si encadena otra */
           break;
       }
     }
@@ -308,7 +317,8 @@ class RecipeExecutor : public SequenceBlock {
 
     bool axesInPosition(const RecipeStep& s) const {
       for (uint8_t i = 0; i < NUM_AXES; i++) {
-        if (!s.axis[i].enabled || !_axes[i]) continue;
+        if (!s.axis[i].enabled) continue;
+        if (!_axes[i]) return false;
         if (!_axes[i]->inPosition(s.axis[i].tolerance)) return false;
       }
       return true;

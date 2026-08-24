@@ -1,31 +1,31 @@
-# 00_TestLibrary
+# 00 · Prueba de la librería
 
-Proyecto de CoreFSM. Placa: **nanoatmega328**.
+Proyecto mínimo para Arduino Nano. Un pulsador entre D2 y GND controla el LED
+integrado de D13 mediante una pequeña secuencia CoreFSM.
 
 ## Compilar
 
-Abre **esta carpeta** en VS Code (no la raíz del repositorio) y pulsa
-`Ctrl+Alt+B`. Para cargar, `Ctrl+Alt+U`. Monitor serie, `Ctrl+Alt+S`.
+Abre **esta carpeta** en VS Code y ejecuta `Ctrl+Alt+B`. Para cargar usa
+`Ctrl+Alt+U`; para el monitor serie, `Ctrl+Alt+S`.
 
-## Flujo de trabajo
+## Cambiar el cableado
 
-1. Dibuja el circuito en [wokwi.com](https://wokwi.com) y **ponle nombre a cada
-   componente**: el `id` de Wokwi se convierte en el nombre de la variable.
-2. Pega el resultado en `diagram.json`.
-3. Compila. El generador reescribe `include/HardwareConfig.h` solo, y ya puedes
-   escribir `HW.Mi_Sensor.hasRisen()`.
+La fuente de hardware es `hardware.csv`. Cada fila declara un nombre, tipo y
+destino. Al compilar, el generador valida la tabla y actualiza
+`include/HardwareConfig.h`; la lógica solo ve nombres como
+`HW.Pulsador_Marcha`.
 
-Ajustes que el esquema no puede expresar (antirrebote de un sensor concreto, un
-relé activo a nivel bajo, un pin a ignorar) van en `corefsm.json`.
+`diagram.json` y `wokwi.toml` se conservan para simular este mismo circuito,
+pero Wokwi no es necesario para generar ni compilar el firmware.
 
-## Archivos
-
-| Archivo | Qué es |
+| Archivo | Función |
 |---|---|
-| `src/main.cpp` | El ciclo de scan y la conexión con el hardware |
-| `src/Proceso.h` | La lógica del proceso. **Aquí va tu trabajo.** |
-| `diagram.json` | El esquema. La única fuente de verdad del cableado. |
-| `corefsm.json` | Ajustes finos del generador |
-| `include/HardwareConfig.h` | **Generado.** No lo edites: se reescribe solo. |
+| `hardware.csv` | asignación canónica de entradas y salidas |
+| `corefsm.json` | fuente, nodo, valores por defecto y backends |
+| `include/HardwareConfig.h` | cabecera generada y versionada |
+| `src/main.cpp` | ciclo de scan y conexión con la planta |
+| `src/Proceso.h` | lógica independiente de los pines |
+| `diagram.json` | circuito opcional para Wokwi |
 
-La guía completa de la librería está en `../../lib/CoreFSM/README.md`.
+Consulta la [guía de CoreFSM](../../lib/CoreFSM/README.md) y el
+[aviso de seguridad](../../SAFETY.md).

@@ -28,7 +28,7 @@
  *
  *  COMO SE IMPLEMENTA EN C++
  *  -------------------------
- *  Con una union entre un uint16_t y una estructura de campos de bit. La union
+ *  Con una union entre un uint16_t y una estructura de campos `uint16_t`. La union
  *  hace que ambas vistas compartan exactamente los mismos dos bytes de RAM:
  *
  *      palabra.start = true;      // acceso comodo por nombre
@@ -41,11 +41,10 @@
  *  ESP32, RP2040 y SAMD por igual) asigna los campos empezando por el bit menos
  *  significativo, asi que 'enable' cae en el bit 0, 'start' en el bit 1, etc.
  *
- *  Como esta libreria solo se compila con GCC, el reparto es estable. Pero si
- *  vas a mandar estas palabras por un bus a un dispositivo de OTRO fabricante
- *  compilado con OTRO compilador, no confies en la union: usa las mascaras
- *  explicitas CFGW_BIT_* / STW_BIT_* que se definen mas abajo, que si son
- *  portables al 100%.
+ *  El tipo base explicito evita que algunos ABI reserven cuatro bytes para
+ *  campos `bool`, y los static_assert de abajo impiden compilar si una
+ *  plataforma no conserva los 16 bits. Para un protocolo externo no serialices
+ *  una estructura C++: compone el entero con las mascaras CFGW_BIT_* / STW_BIT_*.
  * ======================================================================== */
 
 /* ---------------------------------------------------------------------------
@@ -54,20 +53,19 @@
 union ConfigWord {
   uint16_t raw;
   struct {
-    bool enable       : 1;  /* Bit 0: habilitacion general. Sin esto, nada arranca. */
-    bool start        : 1;  /* Bit 1: peticion de arranque de ciclo (se consume). */
-    bool stop         : 1;  /* Bit 2: parada ordenada al terminar el ciclo actual. */
-    bool resetFault   : 1;  /* Bit 3: rearme / acuse de alarma (se consume).      */
-    bool singleStep   : 1;  /* Bit 4: modo paso a paso para puesta en marcha.     */
-    bool nextStep     : 1;  /* Bit 5: en modo paso a paso, avanzar un paso.       */
-    bool bypassTimer  : 1;  /* Bit 6: ignorar los timeouts (SOLO para depurar).   */
-    bool holdRequest  : 1;  /* Bit 7: pausa en caliente conservando el paso.      */
-    bool abortRequest : 1;  /* Bit 8: aborto inmediato a estado seguro.           */
-    bool quickStop    : 1;  /* Bit 9: ACTIVO A NIVEL BAJO. false = parada rapida.
-                               Mismo convenio que en los accionamientos: si el
-                               bus se cae o el cable se corta, la palabra llega
-                               a cero y la maquina se para sola. El fallo debe
-                               llevar SIEMPRE al estado seguro.                 */
+    uint16_t enable       : 1;  /* Bit 0: habilitacion general. Sin esto, nada arranca. */
+    uint16_t start        : 1;  /* Bit 1: peticion de arranque de ciclo (se consume). */
+    uint16_t stop         : 1;  /* Bit 2: parada ordenada al terminar el ciclo actual. */
+    uint16_t resetFault   : 1;  /* Bit 3: rearme / acuse de alarma (se consume).      */
+    uint16_t singleStep   : 1;  /* Bit 4: modo paso a paso para puesta en marcha.     */
+    uint16_t nextStep     : 1;  /* Bit 5: en modo paso a paso, avanzar un paso.       */
+    uint16_t bypassTimer  : 1;  /* Bit 6: ignorar los timeouts (SOLO para depurar).   */
+    uint16_t holdRequest  : 1;  /* Bit 7: pausa en caliente conservando el paso.      */
+    uint16_t abortRequest : 1;  /* Bit 8: aborto inmediato a estado seguro.           */
+    uint16_t quickStop    : 1;  /* Bit 9: ACTIVO A NIVEL BAJO. false = parada rapida.
+                               Si el software recibe una palabra a cero, ordena
+                               la parada en ese scan. No sustituye un circuito
+                               de seguridad cableado.                           */
     uint16_t reserved : 6;  /* Bits 10..15: libres para ampliaciones del usuario. */
   };
 };
@@ -90,23 +88,23 @@ union ConfigWord {
 union StatusWord {
   uint16_t raw;
   struct {
-    bool ready        : 1;  /* Bit 0: condiciones de arranque cumplidas.          */
-    bool running      : 1;  /* Bit 1: secuencia en ejecucion.                     */
-    bool done         : 1;  /* Bit 2: ciclo terminado con exito.                  */
-    bool fault        : 1;  /* Bit 3: alarma activa, la maquina esta retenida.    */
-    bool paused       : 1;  /* Bit 4: en pausa / hold, el paso se conserva.       */
-    bool stepTimeout  : 1;  /* Bit 5: causa del fallo: venciO el watchdog de paso.*/
-    bool inHomePos    : 1;  /* Bit 6: la maquina esta en posicion de reposo.      */
-    bool busy         : 1;  /* Bit 7: ocupada; no acepta ordenes nuevas.          */
-    bool waitingAck   : 1;  /* Bit 8: espera el acuse de la estacion siguiente.   */
-    bool warning      : 1;  /* Bit 9: aviso no bloqueante (mantenimiento, deriva).*/
-    bool suspended    : 1;  /* Bit 10: parada por causa EXTERNA (falta pieza, la
+    uint16_t ready        : 1;  /* Bit 0: condiciones de arranque cumplidas.          */
+    uint16_t running      : 1;  /* Bit 1: secuencia en ejecucion.                     */
+    uint16_t done         : 1;  /* Bit 2: ciclo terminado con exito.                  */
+    uint16_t fault        : 1;  /* Bit 3: alarma activa, la maquina esta retenida.    */
+    uint16_t paused       : 1;  /* Bit 4: en pausa / hold, el paso se conserva.       */
+    uint16_t stepTimeout  : 1;  /* Bit 5: causa del fallo: venciO el watchdog de paso.*/
+    uint16_t inHomePos    : 1;  /* Bit 6: la maquina esta en posicion de reposo.      */
+    uint16_t busy         : 1;  /* Bit 7: ocupada; no acepta ordenes nuevas.          */
+    uint16_t waitingAck   : 1;  /* Bit 8: espera el acuse de la estacion siguiente.   */
+    uint16_t warning      : 1;  /* Bit 9: aviso no bloqueante (mantenimiento, deriva).*/
+    uint16_t suspended    : 1;  /* Bit 10: parada por causa EXTERNA (falta pieza, la
                                siguiente estacion llena). La maquina esta sana y
                                lista; se reanuda sola cuando la causa se va.     */
-    bool held         : 1;  /* Bit 11: parada por causa INTERNA o por decision
+    uint16_t held         : 1;  /* Bit 11: parada por causa INTERNA o por decision
                                del operario (recarga, control de calidad). Se
                                reanuda cuando la condicion propia se cumple.     */
-    bool stepWarn     : 1;  /* Bit 12: el paso lleva mas del tiempo de aviso,
+    uint16_t stepWarn     : 1;  /* Bit 12: el paso lleva mas del tiempo de aviso,
                                pero aun no del de fallo. Aun produce.            */
     uint16_t reserved : 3;  /* Bits 13..15: libres.                               */
   };
@@ -135,21 +133,21 @@ union StatusWord {
  *  Detalle importante de seguridad: quickStop es ACTIVO A NIVEL BAJO. Es decir,
  *  quickStop = true significa "NO hay parada rapida, puedes moverte", y
  *  quickStop = false significa "PARADA RAPIDA AHORA". Puede parecer al reves,
- *  pero es el convenio industrial y existe por una razon: si el cable se corta
- *  o el bus se cae, la palabra llega a cero y el motor para solo. La seguridad
- *  se cablea siempre de forma que el fallo lleve al estado seguro.
+ *  pero es el convenio industrial y existe por una razon: si el software
+ *  recibe una palabra a cero, ordena detener el motor. Es una convencion de
+ *  mando; la seguridad real se implementa con hardware apropiado.
  * ------------------------------------------------------------------------ */
 union DriveControlWord {
   uint16_t raw;
   struct {
-    bool enable       : 1;  /* Bit 0: habilitar la etapa de potencia.             */
-    bool runFwd       : 1;  /* Bit 1: marcha continua en sentido directo.         */
-    bool runRev       : 1;  /* Bit 2: marcha continua en sentido inverso.         */
-    bool jogFwd       : 1;  /* Bit 3: impulso manual directo.                     */
-    bool jogRev       : 1;  /* Bit 4: impulso manual inverso.                     */
-    bool quickStop    : 1;  /* Bit 5: ACTIVO A BAJO. false = parada rapida.       */
-    bool resetFault   : 1;  /* Bit 6: rearme de alarma del accionamiento.         */
-    bool brakeRelease : 1;  /* Bit 7: liberar freno mecanico si existe.           */
+    uint16_t enable       : 1;  /* Bit 0: habilitar la etapa de potencia.             */
+    uint16_t runFwd       : 1;  /* Bit 1: marcha continua en sentido directo.         */
+    uint16_t runRev       : 1;  /* Bit 2: marcha continua en sentido inverso.         */
+    uint16_t jogFwd       : 1;  /* Bit 3: impulso manual directo.                     */
+    uint16_t jogRev       : 1;  /* Bit 4: impulso manual inverso.                     */
+    uint16_t quickStop    : 1;  /* Bit 5: ACTIVO A BAJO. false = parada rapida.       */
+    uint16_t resetFault   : 1;  /* Bit 6: rearme de alarma del accionamiento.         */
+    uint16_t brakeRelease : 1;  /* Bit 7: liberar freno mecanico si existe.           */
     uint16_t reserved : 8;  /* Bits 8..15: libres.                                */
   };
 };
@@ -157,17 +155,26 @@ union DriveControlWord {
 union DriveStatusWord {
   uint16_t raw;
   struct {
-    bool readyToSwitchOn : 1; /* Bit 0: listo para recibir enable.                */
-    bool enabled         : 1; /* Bit 1: potencia aplicada al motor.               */
-    bool running         : 1; /* Bit 2: el eje se esta moviendo.                  */
-    bool fault           : 1; /* Bit 3: averia (termico, sobrecarga, bloqueo).    */
-    bool warning         : 1; /* Bit 4: aviso (cerca del limite termico).         */
-    bool fwdActive       : 1; /* Bit 5: girando en sentido directo.               */
-    bool revActive       : 1; /* Bit 6: girando en sentido inverso.               */
-    bool atSetpoint      : 1; /* Bit 7: consigna de velocidad/posicion alcanzada. */
+    uint16_t readyToSwitchOn : 1; /* Bit 0: listo para recibir enable.                */
+    uint16_t enabled         : 1; /* Bit 1: potencia aplicada al motor.               */
+    uint16_t running         : 1; /* Bit 2: el eje se esta moviendo.                  */
+    uint16_t fault           : 1; /* Bit 3: averia (termico, sobrecarga, bloqueo).    */
+    uint16_t warning         : 1; /* Bit 4: aviso (cerca del limite termico).         */
+    uint16_t fwdActive       : 1; /* Bit 5: girando en sentido directo.               */
+    uint16_t revActive       : 1; /* Bit 6: girando en sentido inverso.               */
+    uint16_t atSetpoint      : 1; /* Bit 7: consigna de velocidad/posicion alcanzada. */
     uint16_t reserved    : 8; /* Bits 8..15: libres.                              */
   };
 };
+
+static_assert(sizeof(ConfigWord) == sizeof(uint16_t),
+              "ConfigWord debe ocupar exactamente 16 bits");
+static_assert(sizeof(StatusWord) == sizeof(uint16_t),
+              "StatusWord debe ocupar exactamente 16 bits");
+static_assert(sizeof(DriveControlWord) == sizeof(uint16_t),
+              "DriveControlWord debe ocupar exactamente 16 bits");
+static_assert(sizeof(DriveStatusWord) == sizeof(uint16_t),
+              "DriveStatusWord debe ocupar exactamente 16 bits");
 
 /* ---------------------------------------------------------------------------
  *  4. Codigos de error normalizados
@@ -182,7 +189,7 @@ enum CfsmError : uint16_t {
   CFSM_ERR_STEP_TIMEOUT    = 0x0001,  /* un paso agoto su tiempo maximo          */
   CFSM_ERR_CYCLE_TIMEOUT   = 0x0002,  /* el ciclo completo agoto su tiempo       */
   CFSM_ERR_INTERLOCK       = 0x0003,  /* condicion de enclavamiento incumplida   */
-  CFSM_ERR_ESTOP           = 0x0004,  /* seta de emergencia pulsada              */
+  CFSM_ERR_ESTOP           = 0x0004,  /* interbloqueo logico de parada activo     */
   CFSM_ERR_HANDSHAKE       = 0x0005,  /* la estacion vecina no responde          */
   CFSM_ERR_DRIVE_FAULT     = 0x0006,  /* averia propagada desde un accionamiento */
   CFSM_ERR_SENSOR_INVALID  = 0x0007,  /* dos sensores excluyentes activos a la vez*/
@@ -200,7 +207,7 @@ inline const __FlashStringHelper* cfsmErrorText(uint16_t code) {
     case CFSM_ERR_STEP_TIMEOUT:   return CFSM_FSTR("Timeout de paso");
     case CFSM_ERR_CYCLE_TIMEOUT:  return CFSM_FSTR("Timeout de ciclo");
     case CFSM_ERR_INTERLOCK:      return CFSM_FSTR("Enclavamiento no cumplido");
-    case CFSM_ERR_ESTOP:          return CFSM_FSTR("Parada de emergencia");
+    case CFSM_ERR_ESTOP:          return CFSM_FSTR("Interbloqueo de parada");
     case CFSM_ERR_HANDSHAKE:      return CFSM_FSTR("Fallo de handshake");
     case CFSM_ERR_DRIVE_FAULT:    return CFSM_FSTR("Averia de accionamiento");
     case CFSM_ERR_SENSOR_INVALID: return CFSM_FSTR("Senal de sensor incoherente");

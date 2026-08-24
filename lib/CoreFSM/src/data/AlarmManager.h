@@ -104,7 +104,12 @@ class AlarmManager {
      * hasta que alguien la acuse. */
     void clear(uint16_t code) {
       AlarmEntry* e = find(code);
-      if (e) e->active = false;
+      if (e) {
+        e->active = false;
+        /* Si se acuso mientras la causa seguia presente, el orden inverso
+         * ack -> clear debe terminar igual que clear -> ack. */
+        if (e->acked) purgeInactive();
+      }
     }
 
     /* Version comoda: raiseIf(condicion, ...) dispara o limpia segun toque. */

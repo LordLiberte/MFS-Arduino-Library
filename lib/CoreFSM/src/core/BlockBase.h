@@ -80,8 +80,8 @@ class BlockBase {
      *  comportamiento indefinido en cuanto alguien registra un bloque que
      *  hereda directamente de BlockBase: la llamada se sale de la tabla de
      *  funciones virtuales y salta a una direccion arbitraria de la flash.
-     *  Y el sitio donde eso ocurriria es justo el peor: la parada de
-     *  emergencia. De ahi que se resuelva con polimorfismo de verdad.
+     *  Y el sitio donde eso ocurriria es justo el peor: un interbloqueo de
+     *  parada. De ahi que se resuelva con polimorfismo de verdad.
      * -------------------------------------------------------------------- */
     virtual void start()  {}
     virtual void stop()   {}
@@ -89,9 +89,9 @@ class BlockBase {
     virtual void resume() {}
     virtual void abort(uint16_t code) { CFSM_UNUSED(code); }
 
-    /* Se llama a TODOS los bloques cuando se activa la seta de emergencia.
-     * FsmBlock lo traduce a una alarma; un bloque que herede directamente de
-     * BlockBase puede sobrescribirlo para poner sus salidas en estado seguro. */
+    /* Se llama a TODOS los bloques cuando se activa el interbloqueo de
+     * software. FsmBlock lo traduce a una alarma; no sustituye una funcion de
+     * seguridad cableada. */
     virtual void onEmergencyStop() {}
 
     /* -----------------------------------------------------------------------

@@ -79,8 +79,9 @@ class MotorDrive : public IDevice {
      * al hardware siempre ha pasado por los tres enclavamientos. */
     void writeOutputs() override {
       /* --- Rearme de averia --- */
-      if (ST.cfgw.resetFault && ST.stw.fault) {
-        ST.cfgw.resetFault = false;
+      bool resetRequested = ST.cfgw.resetFault;
+      ST.cfgw.resetFault = false;  /* nunca debe quedar latente */
+      if (resetRequested && ST.stw.fault) {
         ST.stw.fault       = false;
         ST.errorCode       = CFSM_ERR_NONE;
         ST.stw.readyToSwitchOn = true;
@@ -88,8 +89,8 @@ class MotorDrive : public IDevice {
 
       /* --- Corte por averia, parada rapida o falta de habilitacion ---
        * Se limpian TAMBIEN el sentido actual y el pendiente. Si no, una
-       * inversion interrumpida a mitad por la seta dejaria _pendingDir
-       * enganchado, y al liberar la seta el motor arrancaria solo en el
+       * inversion interrumpida a mitad por un interbloqueo dejaria _pendingDir
+       * enganchado, y al liberarlo el motor arrancaria solo en el
        * sentido contrario sin que nadie se lo hubiera pedido. Es exactamente
        * lo que este bloque existe para impedir. */
       if (ST.stw.fault || !ST.cfgw.quickStop || !ST.cfgw.enable) {
@@ -98,6 +99,7 @@ class MotorDrive : public IDevice {
         ST.stw.running   = false;
         ST.stw.fwdActive = false;
         ST.stw.revActive = false;
+        ST.stw.atSetpoint= false;
         _applied    = 0;
         _setpoint   = 0;
         _dir        = 0;
@@ -131,6 +133,9 @@ class MotorDrive : public IDevice {
         brake();
         ST.actualSpeed = 0;
         ST.stw.running = false;
+        ST.stw.fwdActive = false;
+        ST.stw.revActive = false;
+        ST.stw.atSetpoint = false;
         return;
       }
       if (_pendingDir != 0) {
@@ -140,8 +145,26 @@ class MotorDrive : public IDevice {
          * que estos enclavamientos existen para evitar. */
         if (wantDir == 0) {
           _pendingDir = 0;
+        } else if (wantDir != _pendingDir) {
+          /* La orden cambio otra vez durante la ventana muerta. Reiniciar el
+           * tiempo y obedecer la orden ACTUAL; aplicar la pendiente antigua
+           * produciria un movimiento en sentido contrario al solicitado. */
+          _pendingDir = wantDir;
+          _deadStart = cfsm_millis();
+          brake();
+          ST.actualSpeed = 0;
+          ST.stw.running = false;
+          ST.stw.fwdActive = false;
+          ST.stw.revActive = false;
+          ST.stw.atSetpoint = false;
+          return;
         } else if (cfsm_elapsed(_deadStart) < _deadTimeMs) {
           brake();               /* seguimos dentro del tiempo muerto */
+          ST.actualSpeed = 0;
+          ST.stw.running = false;
+          ST.stw.fwdActive = false;
+          ST.stw.revActive = false;
+          ST.stw.atSetpoint = false;
           return;
         } else {
           wantDir     = _pendingDir;
@@ -208,6 +231,19 @@ class MotorDrive : public IDevice {
       if (!ST.stw.fault) { ST.stw.fault = true; ST.errorCode = code; }
     }
     void resetFault() { ST.cfgw.resetFault = true; }
+
+    void enterSafeState() override {
+      ST.cfgw.raw = 0;              /* quickStop queda activo a nivel bajo */
+      ST.setpointSpeed = 0;
+      ST.actualSpeed = 0;
+      ST.stw.enabled = false;
+      ST.stw.running = false;
+      ST.stw.fwdActive = false;
+      ST.stw.revActive = false;
+      _setpoint = _applied = 0;
+      _dir = _pendingDir = 0;
+      coast();
+    }
 
     /* Consigna con signo, comoda para los coordinadores cinematicos:
      * positivo = adelante, negativo = atras, 0 = parar. */

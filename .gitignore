@@ -16,6 +16,10 @@
 .wokwi/
 wokwi-license.txt
 
+# Python: artefactos locales de los generadores y sus pruebas.
+__pycache__/
+*.pyc
+
 # Basura de los sistemas operativos
 Thumbs.db
 desktop.ini
@@ -23,4 +27,5 @@ desktop.ini
 
 # NOTA: include/HardwareConfig.h SÍ se versiona a propósito, aunque lo genere
 # el script. Así el repositorio compila también en un equipo sin Python, y el
-# CI puede avisarte si se ha quedado desfasado respecto al diagram.json.
+# CI puede avisarte si se ha quedado desfasado respecto a su fuente CSV, JSON o
+# Wokwi.

@@ -10,7 +10,7 @@
  *
  *  POR QUE LA CAMARA VA APARTE
  *    Un Arduino no procesa imagenes, y no debe intentarlo: mientras recorre
- *    una matriz de pixeles no esta vigilando la seta de emergencia ni los
+ *    una matriz de pixeles no esta actualizando interbloqueos logicos ni los
  *    finales de carrera. Se reparte el trabajo igual que en la industria: la
  *    camara piensa por su cuenta y entrega el resultado ya masticado; el
  *    automata solo decide y actua. Cognex y Keyence funcionan asi.
@@ -88,6 +88,13 @@ class Seguidor : public SequenceBlock {
 
     uint8_t  velocidadBusqueda = 120;
     uint16_t msEsperaPerdido   = 800;
+
+    void requestStop() {
+      ordenMarcha = false;
+      _ch.stop();
+      _ch.disable();
+      setStep(SEG_PARADO);
+    }
 
     void begin() override {
       setName(F("SEGUIDOR"));
@@ -201,7 +208,7 @@ void loop() {
 
   if (btnMarcha.hasRisen()) {
     if (seguidor.getStep() == SEG_PARADO) seguidor.ordenMarcha = true;
-    else { seguidor.stop(); seguidor.start(); }
+    else seguidor.requestStop();
   }
 
   /* 2. Scan */

@@ -248,9 +248,11 @@ class PositionAxis : public IAxis {
     void moveTo(int16_t target) { moveTo(target, _vMax); }
 
     bool inPosition(int16_t tolerance) const override {
-      return abs(_target - _actual) <= tolerance;
+      return abs(_target - position()) <= tolerance;
     }
-    int16_t position() const override { return _actual; }
+    int16_t position() const override {
+      return _isHomed ? (int16_t)(_actual - _homeOffset) : _actual;
+    }
     bool isHomed() const override { return _isHomed; }
 
     void hold() override { _active = false; _motor.stop(); }
@@ -266,7 +268,7 @@ class PositionAxis : public IAxis {
       if (_homing) return;
       if (!_active) { _motor.stop(); return; }
 
-      int16_t error = _target - _actual;
+      int16_t error = _target - position();
 
       if (abs(error) <= _tolerance) {      /* zona muerta: hemos llegado */
         _motor.stop();
@@ -286,7 +288,7 @@ class PositionAxis : public IAxis {
 
     bool    reached()    const { return _inPosition; }
     int16_t target()     const { return _target; }
-    int16_t error()      const { return _target - _actual; }
+    int16_t error()      const { return _target - position(); }
 
     /* kp va en decimas: kp = 15 significa una ganancia de 1,5.
      * Ajuste practico: sube kp hasta que el eje empiece a oscilar al llegar,
@@ -323,12 +325,14 @@ class PositionAxis : public IAxis {
         _homing     = false;
         _homeOffset = _actual;    /* aqui esta el cero */
         _isHomed    = true;
+        _target     = 0;
+        _inPosition = true;
         return true;
       }
       return false;
     }
 
-    int16_t relativePosition() const { return _actual - _homeOffset; }
+    int16_t relativePosition() const { return position(); }
 
   private:
     MotorDrive& _motor;

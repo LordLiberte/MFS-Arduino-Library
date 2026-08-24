@@ -56,6 +56,11 @@ class IDevice {
     /* Fase PAA. Los dispositivos de solo entrada la dejan vacia. */
     virtual void writeOutputs() {}
 
+    /* Lleva las salidas a un estado no energizado y elimina cualquier orden
+     * que pudiera reactivarlas al liberar un interbloqueo. Es una proteccion
+     * de software; no sustituye una cadena de seguridad cableada. */
+    virtual void enterSafeState() {}
+
     /* Nombre para el diagnostico, en memoria de programa. */
     void setName(const __FlashStringHelper* n) { _name = n; }
     const __FlashStringHelper* getName() const { return _name; }
