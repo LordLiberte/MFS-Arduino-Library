@@ -24,7 +24,7 @@ void setup() {
   Serial.begin(9600);
   led.begin();
 
-  led.configureBreathing(5, 20, 15); // brillo mínimo, máximo y velocidad  
+  led.configureBreathing(5, 30, 15); // Configuración de respiración: brillo mínimo, máximo y velocidad  
   proceso.begin();
   proceso.start();
 }
