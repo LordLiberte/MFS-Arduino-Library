@@ -1,0 +1,16 @@
+{
+  "source": {
+    "format": "csv",
+    "path": "hardware.csv"
+  },
+  "defaults": {
+    "debounce_ms": 20
+  },
+  "nodes": [
+    {
+      "id": "main",
+      "board": "nano"
+    }
+  ],
+  "backends": []
+}
