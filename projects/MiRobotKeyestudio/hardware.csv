@@ -1,0 +1,2 @@
+node,name,role,target,pullup,active_low,debounce_ms,filter,safe
+main,LedMiniPCB,DO,gpio.9,,false,,,false
