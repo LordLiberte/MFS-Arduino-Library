@@ -84,7 +84,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .app {
   display: grid;
-  grid-template-rows: 34px 46px 1fr 24px;
+  grid-template-rows: 34px 46px minmax(0, 1fr) 24px;
   height: 100%;
 }
 
@@ -155,11 +155,25 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .workspace {
   display: grid;
-  grid-template-columns: 48px var(--tree-w, 250px) 1fr var(--insp-w, 316px);
-  min-height: 0; background: var(--bg);
+  grid-template-columns: 48px var(--tree-w, 250px) minmax(0, 1fr) var(--insp-w, 316px);
+  /* La fila implícita sería 'auto' y crecería hasta el contenido más alto,
+   * desbordando la ventana en pantallas bajas. Acotarla es lo que mantiene la
+   * barra de estado y el panel inferior siempre visibles. */
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0; overflow: hidden; background: var(--bg);
 }
-.workspace.no-inspector { grid-template-columns: 48px var(--tree-w, 250px) 1fr 0; }
+.workspace.no-inspector { grid-template-columns: 48px var(--tree-w, 250px) minmax(0, 1fr) 0; }
 .workspace.portal { grid-template-columns: 1fr; }
+
+/* Por debajo de 1200 px el inspector deja de caber sin comerse la tabla. */
+@media (max-width: 1200px) {
+  .workspace { grid-template-columns: 48px var(--tree-w, 230px) minmax(0, 1fr) 0; }
+  .workspace > .inspector { display: none; }
+}
+@media (max-width: 900px) {
+  .workspace { grid-template-columns: 48px 0 minmax(0, 1fr) 0; }
+  .workspace > .tree { display: none; }
+}
 .workspace.portal > .rail,
 .workspace.portal > .tree,
 .workspace.portal > .inspector { display: none; }
@@ -209,7 +223,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: var(--text-3);
 }
 .pane-head .spacer { flex: 1; }
-.tree-body { overflow: auto; padding: 4px 0 14px; flex: 1; }
+.tree-body { overflow-y: auto; overflow-x: hidden; padding: 4px 0 14px; flex: 1; }
 
 .node {
   display: flex; align-items: center; gap: 7px;
@@ -233,7 +247,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .node.gen .label { font-style: italic; opacity: .75; }
 
 /* centro */
-.center { display: grid; grid-template-rows: 32px 1fr auto; min-width: 0; min-height: 0; }
+.center { display: grid; grid-template-rows: 32px minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
 
 .tabstrip {
   display: flex; align-items: stretch; gap: 0;
@@ -266,7 +280,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tab.mod:hover .x::before { content: "×"; font-size: 14px; }
 .tab.mod:hover .x { color: inherit; }
 
-.viewport { overflow: auto; min-height: 0; position: relative; }
+/* El área central NO hace scroll: lo hace .view-body, y solo ella. Con dos
+ * contenedores desplazables encajados, la rueda del ratón se comporta distinto
+ * según dónde esté el cursor, que es lo que se percibe como «scroll raro». */
+.viewport { overflow: hidden; min-height: 0; position: relative; }
 .view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 
 .view-head {
@@ -276,13 +293,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .view-head h2 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
 .view-head p { margin: 2px 0 0; color: var(--text-3); font-size: 12px; max-width: 68ch; }
 .view-head .spacer { flex: 1; }
-.view-body { flex: 1; min-height: 0; overflow: auto; padding: 0 16px 16px; }
+.view-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 16px 16px; }
 .view-body.flush { padding: 0; }
 
 /* panel inferior */
 .bottom {
   border-top: 1px solid var(--line); background: var(--panel);
-  display: grid; grid-template-rows: 30px var(--bottom-h, 176px);
+  display: grid; grid-template-rows: 30px min(var(--bottom-h, 176px), 26vh);
 }
 .bottom.collapsed { grid-template-rows: 30px 0; }
 .bottom.collapsed .bottom-body { display: none; }
@@ -308,7 +325,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   background: var(--panel); border-left: 1px solid var(--line);
   display: flex; flex-direction: column; min-width: 0; overflow: hidden;
 }
-.inspector-body { overflow: auto; flex: 1; padding: 10px 12px 20px; }
+.inspector-body { overflow-y: auto; overflow-x: hidden; flex: 1; padding: 10px 12px 20px; }
 
 .statusbar {
   display: flex; align-items: center; gap: 14px;
@@ -409,10 +426,26 @@ input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; }
 
 /* ================================================================ REJILLA = */
 
-.grid-wrap { border: 1px solid var(--line); border-radius: var(--radius); overflow: auto; background: var(--panel); }
-table.grid { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.5px; }
+/* Dos modos, y en los dos hay UN solo contenedor desplazable:
+ *  - En una vista de tabla (.table-view) manda la tabla: ocupa el alto que
+ *    queda y desplaza en los dos ejes, que es lo que mantiene fija la fila de
+ *    cabeceras.
+ *  - En una vista con varias secciones apiladas manda .view-body; la tabla no
+ *    limita su alto, así que overflow-y no llega a recortar nada. */
+.grid-wrap {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  overflow-x: auto; overflow-y: hidden; background: var(--panel);
+}
+.view-body.table-view { display: flex; flex-direction: column; overflow: hidden; }
+.view-body.table-view > .grid-wrap { flex: 1; min-height: 0; overflow: auto; }
+table.grid {
+  border-collapse: separate; border-spacing: 0;
+  width: max-content; min-width: 100%; font-size: 12.5px;
+}
+table.grid td:last-child, table.grid th:last-child { border-right: 0; }
 table.grid th {
   position: sticky; top: 0; z-index: 2;
+  box-shadow: 0 1px 0 var(--line-2);
   background: var(--panel-2); text-align: left; font-weight: 600; color: var(--text-2);
   padding: 0 8px; height: 28px; white-space: nowrap;
   border-bottom: 1px solid var(--line-2); border-right: 1px solid var(--line);
@@ -453,7 +486,10 @@ table.grid td.act { width: 30px; }
 table.grid tr.add td { color: var(--text-3); cursor: pointer; }
 table.grid tr.add:hover td { background: var(--hover); color: var(--accent-2); }
 
-.grid-toolbar { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }
+/* Las barras de herramientas se doblan en vez de desbordar: el monitor lleva
+ * selector de puerto, velocidad y seis botones de mando y no cabe en 1280. */
+.grid-toolbar { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; flex-wrap: wrap; row-gap: 6px; }
+.grid-toolbar .spacer { flex: 1 1 0; min-width: 0; }
 .grid-toolbar .spacer { flex: 1; }
 .search {
   position: relative; display: inline-flex; align-items: center;
@@ -677,6 +713,17 @@ table.grid tr.add:hover td { background: var(--hover); color: var(--accent-2); }
 }
 .dialog footer .spacer { flex: 1; }
 
+.dropzone {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 18px; margin-bottom: 10px; cursor: pointer;
+  border: 1.5px dashed var(--line-3); border-radius: var(--radius-lg);
+  background: var(--input); transition: border-color .14s, background .14s;
+}
+.dropzone:hover, .dropzone.over { border-color: var(--accent); background: var(--accent-wash); }
+.dropzone .ic-svg { width: 22px; height: 22px; color: var(--accent-2); }
+.dropzone b { display: block; font-size: 13px; }
+.dropzone span { color: var(--text-3); font-size: 12px; }
+
 .picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 9px; }
 .pick {
   text-align: left; padding: 12px; cursor: pointer;
@@ -722,7 +769,8 @@ table.grid tr.add:hover td { background: var(--hover); color: var(--accent-2); }
 .console .st { color: var(--accent-2); font-weight: 600; }
 
 /* monitor */
-.monitor-grid { display: grid; grid-template-columns: 1fr 340px; gap: 12px; height: 100%; min-height: 0; }
+.monitor-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; align-items: start; }
+@media (max-width: 1100px) { .monitor-grid { grid-template-columns: minmax(0, 1fr); } }
 .watch { display: grid; gap: 5px; }
 .watch-row {
   display: flex; align-items: center; gap: 9px; padding: 5px 9px;

@@ -2,6 +2,45 @@
 
 Este proyecto sigue [Semantic Versioning](https://semver.org/).
 
+## 2.3.1 · 2026-08-30
+
+### Añadido
+
+- **Importar la configuración de pines desde otra herramienta.** Botón
+  «Importar» en la cinta y en la tabla de variables: acepta el `diagram.json`
+  de Wokwi, un `hardware.csv` y un `hardware.json`, arrastrando el archivo o
+  pegando su contenido. Muestra qué ha encontrado, qué nombres ya existen y los
+  avisos del generador antes de tocar nada, y deja elegir entre añadir a la
+  tabla o reemplazarla. Wokwi deja de ser un requisito y pasa a ser una entrada
+  más: cualquier programa que exporte nombre y pin a CSV vale.
+
+### Corregido
+
+- **Enter ya no crea filas.** Al confirmar la última fila de una tabla se
+  añadía otra vacía, que además impedía guardar por no tener nombre. Ahora
+  Enter confirma y baja, y las filas solo aparecen al pulsar «Añadir».
+- **Escape ya no borra lo escrito.** Descarta la fila solo si acaba de crearse
+  con «Añadir» y sigue intacta; si ya hay algo escrito, cancela la celda y nada
+  más.
+- **Los diálogos aguantan un clic rápido.** Cerrar al pulsar fuera exige ahora
+  pulsar y soltar sobre el fondo, y no admite nada durante los primeros 300 ms:
+  lo cerraba al instante.
+- **Un solo contenedor con scroll por vista.** Había tres encajados y la rueda
+  del ratón hacía cosas distintas según dónde estuviera el cursor.
+- **Nada se sale de la pantalla.** Las pistas `1fr` de la rejilla principal
+  conservaban un mínimo automático y desbordaban la ventana por debajo de
+  1366 px de alto, dejando el panel inferior fuera de vista. Las barras de
+  herramientas se doblan, las tablas conservan anchos legibles y desplazan en
+  horizontal dentro de su marco, y por debajo de 1200 px se oculta el
+  inspector.
+- **Fluidez.** Los repintados se agrupan por fotograma en vez de uno por
+  pulsación; el coloreado del editor y la columna de números se recalculan solo
+  cuando hace falta; el árbol y la consola solo se reconstruyen si su contenido
+  ha cambiado; el separador del árbol dejaba un manejador por repintado; y el
+  monitor deja de sondear el puerto al salir de su vista.
+- El contador de filas de una tabla se quedaba con el valor del primer pintado.
+- Asignar un pin desde el mapa de la placa no refrescaba el mapa.
+
 ## 2.3.0 · 2026-08-30
 
 ### Añadido
