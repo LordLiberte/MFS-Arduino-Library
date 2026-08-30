@@ -59,6 +59,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 return self._json(201, value)
             if len(parts) == 3 and parts[0] == "projects" and parts[2] == "actions":
                 return self._json(200, self.workspace.run_action(parts[1], payload.get("action")))
+            if len(parts) == 3 and parts[0] == "projects" and parts[2] == "import":
+                return self._json(200, self.workspace.import_hardware(
+                    parts[1], payload.get("content", ""), payload.get("format", "auto"),
+                    payload.get("filename", ""), payload.get("node")))
             raise StudioError("Ruta API no encontrada", "not_found", 404)
         except StudioError as exc:
             return self._json(exc.status, exc.as_dict())
