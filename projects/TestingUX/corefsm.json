@@ -3,17 +3,14 @@
     "format": "csv",
     "path": "hardware.csv"
   },
+  "defaults": {
+    "debounce_ms": 20
+  },
   "nodes": [
     {
       "id": "main",
-      "board": "nano"
+      "board": "uno"
     }
   ],
-  "defaults": {
-    "pullup": true,
-    "debounce_ms": 20,
-    "active_low": false,
-    "safe": false
-  },
   "backends": []
 }

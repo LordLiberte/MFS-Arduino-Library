@@ -190,6 +190,100 @@ int main() {
     CHECK(!camera.commsOk(), "reinicializar vision invalida la comunicacion previa");
   }
 
+  { printf("DRV2 DIR+PWM corta antes de invertir y respeta el tiempo muerto\n");
+    resetArduinoStub();
+    DirPwmMotorDrive drive(4, 5);
+    drive.begin();
+    CHECK(g_pinModes[4] == OUTPUT && g_pinModes[5] == OUTPUT,
+          "configura DIR y PWM como salidas");
+    CHECK(g_pwmLevels[5] == 0, "begin deja el puente sin energia");
+
+    drive.enable();
+    drive.forward(120);
+    drive.writeOutputs();
+    CHECK(g_digitalLevels[4] == HIGH && g_pwmLevels[5] == 0,
+          "prepara avance manteniendo PWM a cero durante una PAA");
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[5] == 120 && drive.isRunning() && drive.direction() == 1,
+          "aplica la marcha adelante despues de preparar DIR");
+
+    drive.backward(90);
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[5] == 0 && g_digitalLevels[4] == HIGH,
+          "al invertir corta PWM antes de tocar DIR");
+    CHECK(!drive.ST.stw.running && !drive.ST.stw.fwdActive &&
+          !drive.ST.stw.revActive,
+          "durante la inversion publica estado detenido");
+
+    g_ms = 29;
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[5] == 0 && g_digitalLevels[4] == HIGH,
+          "mantiene PWM cero y la direccion antigua durante el dead-time");
+
+    g_ms = 30;
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[5] == 0 && g_digitalLevels[4] == LOW,
+          "cambia DIR solo al vencer el dead-time y aun sin energia");
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[5] == 90 && drive.isRunning() && drive.direction() == -1,
+          "la marcha inversa empieza en una PAA posterior");
+
+    drive.ST.cfgw.runFwd = true;
+    drive.ST.cfgw.runRev = true;
+    drive.ST.setpointSpeed = 200;
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[5] == 0 && drive.ST.stw.warning,
+          "dos sentidos simultaneos paran el motor y levantan aviso");
+  }
+
+  { printf("DRV3 DIR+PWM rampa, inversion logica y estado seguro\n");
+    resetArduinoStub();
+    DirPwmMotorDrive drive(7, 6, true);
+    drive.setRamp(3);
+    drive.begin();
+    drive.enable();
+    drive.forward(100);
+    drive.writeOutputs();
+    CHECK(g_digitalLevels[7] == LOW && g_pwmLevels[6] == 0,
+          "directionInverted invierte solo el nivel fisico de DIR");
+
+    g_ms = 10;
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[6] == 30 && drive.speed() == 30,
+          "la rampa usa el tiempo transcurrido y no el numero de scans");
+    g_ms = 20;
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[6] == 60, "la rampa continua sin saltar a consigna");
+
+    drive.forward(20);
+    g_ms = 25;
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[6] == 45, "la rampa tambien limita una bajada de velocidad");
+    g_ms = 35;
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[6] == 20 && drive.ST.stw.atSetpoint,
+          "alcanza exactamente una consigna inferior");
+
+    drive.disable();
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[6] == 0 && !drive.isEnabled() && !drive.isRunning(),
+          "disable corta y elimina la orden de movimiento");
+    drive.enable();
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[6] == 0,
+          "rehabilitar no reanuda una orden anterior");
+
+    drive.forward(80);
+    drive.writeOutputs();
+    g_ms = 45;
+    drive.writeOutputs();
+    CHECK(g_pwmLevels[6] == 30, "puede volver a arrancar con una orden nueva");
+    drive.enterSafeState();
+    CHECK(g_pwmLevels[6] == 0 && g_digitalLevels[7] == LOW &&
+          !drive.isEnabled() && !drive.isRunning(),
+          "enterSafeState deja PWM cero y borra toda orden latente");
+  }
+
   { printf("NET1 Snapshot, CRC, timeout y reinicio de peer\n");
     resetArduinoStub();
     BufferStream portA, portB;

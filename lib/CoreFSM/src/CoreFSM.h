@@ -74,6 +74,7 @@
 
 /* --- Accionamientos --- */
 #include "drive/MotorDrive.h"
+#include "drive/DirPwmMotorDrive.h"
 #include "drive/Chassis.h"
 
 /* --- Datos --- */

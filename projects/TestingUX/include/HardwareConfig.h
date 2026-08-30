@@ -3,13 +3,13 @@
  * -----------------------------------------------------------------------------
  *  Origen : hardware.csv (csv)
  *  Nodo   : main
- *  Placa  : nano
- *  Senales: 0 entradas digitales, 2 salidas digitales, 0 analogicas
+ *  Placa  : uno
+ *  Senales: 1 entradas digitales, 1 salidas digitales, 0 analogicas
  *
  *  Edita la fuente indicada arriba y vuelve a generar. La API del programa
  *  permanece estable: HW.Nombre_De_La_Senal.
  *
- *      HW.LedMiniPCB.turnOn()
+ *      HW.Pulsador_Marcha.hasRisen()
  * ========================================================================== */
 
 #ifndef HARDWARE_CONFIG_H
@@ -19,12 +19,11 @@
 
 /* GPIO nativo: entradas digitales. */
 #define CFSM_TABLE_DI(ROW) \
-  /* (ninguna) */
+  ROW(    2, Pulsador_Marcha                 , true ,  20 )
 
 /* GPIO nativo: salidas digitales con estado seguro false. */
 #define CFSM_TABLE_DO(ROW) \
-  ROW(    9, LedMiniPCB                      , false ) \
-  ROW(   10, Servo                           , false )
+  ROW(   13, Piloto_Trabajo                  , false )
 
 /* GPIO nativo: entradas analogicas. */
 #define CFSM_TABLE_AI(ROW) \
