@@ -24,6 +24,7 @@ Este proyecto sigue [Semantic Versioning](https://semver.org/).
   más.
 - **Los diálogos aguantan un clic rápido.** Cerrar al pulsar fuera exige ahora
   pulsar y soltar sobre el fondo, y no admite nada durante los primeros 300 ms:
+  antes, el diálogo aparecía bajo el cursor y el segundo clic de un doble clic
   lo cerraba al instante.
 - **Un solo contenedor con scroll por vista.** Había tres encajados y la rueda
   del ratón hacía cosas distintas según dónde estuviera el cursor.
