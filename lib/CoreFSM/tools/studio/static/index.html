@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CoreFSM Studio</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2310b3a0'/><text x='16' y='23' font-size='19' font-family='monospace' font-weight='bold' text-anchor='middle' fill='%23041210'>C</text></svg>">
+</head>
+<body>
+<div id="app" class="app">
+  <header class="titlebar">
+    <div class="brand">
+      <span class="mark">C</span>
+      <span class="name"><b>CoreFSM</b> Studio</span>
+    </div>
+    <span class="sep"></span>
+    <div class="crumb" id="crumb"><span class="muted">Sin proyecto abierto</span></div>
+    <span class="spacer"></span>
+    <div id="titlebar-right"></div>
+  </header>
+
+  <nav class="ribbon" id="ribbon"></nav>
+
+  <main class="workspace portal" id="workspace">
+    <nav class="rail" id="rail"></nav>
+    <aside class="tree gutter" id="tree"></aside>
+    <section class="center" id="center">
+      <div class="tabstrip" id="tabstrip"></div>
+      <div class="viewport" id="viewport"></div>
+      <div class="bottom collapsed" id="bottom">
+        <div class="bottom-tabs" id="bottom-tabs"></div>
+        <div class="bottom-body" id="bottom-body"></div>
+      </div>
+    </section>
+    <aside class="inspector" id="inspector"></aside>
+  </main>
+
+  <footer class="statusbar" id="statusbar"></footer>
+</div>
+<div class="toasts" id="toasts"></div>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

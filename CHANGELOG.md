@@ -2,6 +2,42 @@
 
 Este proyecto sigue [Semantic Versioning](https://semver.org/).
 
+## 2.3.0 · 2026-08-30
+
+### Añadido
+
+- **CoreFSM Studio**: entorno de ingeniería local con interfaz gráfica, servido
+  por `corefsm_studio.py` desde `tools/studio/static/`. Sin dependencias ni
+  conexión: es HTML, CSS y JavaScript escritos a mano sobre la biblioteca
+  estándar de Python.
+- Vista del portal orientada a tareas y asistente de proyecto nuevo con
+  plantillas (máquina básica, Keyestudio 4WD KS0192, 4WD de referencia, vacío).
+- Tabla de variables de E/S al estilo de una tabla de variables PLC, con edición
+  por teclado, filtro y validación en vivo.
+- Tablas de dispositivos, bloques de datos y tipos de usuario; los ajustes de la
+  máquina dejan de estar repartidos entre el constructor, `main.cpp` y la lógica.
+- Vista de dispositivo con el mapa de pines de la placa, colisiones marcadas y
+  aviso cuando una velocidad cae en un pin sin PWM por hardware.
+- Editor de código con coloreado de C++, símbolos del proyecto resaltados y
+  autocompletado: al escribir un punto tras un objeto aparecen sus métodos
+  reales con su firma y para qué sirven.
+- Se pueden arrastrar señales de la tabla de E/S al editor o a una celda de
+  condición para insertar su expresión.
+- Diagrama de la secuencia tipo Grafcet, generado del modelo.
+- Monitor serie que lee la telemetría que ya emite la librería (`[PASO]`,
+  `[ESTADO]`, tabla de observación) y enciende el paso activo sobre el diagrama,
+  con los mandos de `MaintenanceConsole`. No requiere cambiar el firmware.
+- Lista de pasos guiados que se marca sola según el estado del proyecto.
+- `studio/serialmon.py`: puente con el puerto serie. `pyserial` es opcional y su
+  ausencia solo desactiva el monitor.
+- Métodos del servo y del bloque de secuencia que faltaban en el catálogo.
+
+### Corregido
+
+- Studio ya no escribe en `hardware.csv` atributos que el rol de la señal no
+  admite (`active_low` en una `DI`, por ejemplo), que abortaban la generación.
+  Las plantillas que lo hacían quedan corregidas y la tabla apaga esas celdas.
+
 ## 2.2.0 · 2026-08-23
 
 ### Añadido

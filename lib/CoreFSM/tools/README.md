@@ -40,6 +40,80 @@ Opciones adicionales:
   proyecto generado.
 - `--forzar`: sobrescribe archivos de una carpeta ya existente.
 
+## CoreFSM Studio
+
+El entorno gráfico. Es un servidor local de la biblioteca estándar más una
+aplicación web servida desde `studio/static/`; no instala nada ni sale a
+internet.
+
+```bash
+python lib/CoreFSM/tools/corefsm_studio.py        # abre http://127.0.0.1:8765
+python lib/CoreFSM/tools/corefsm_studio.py --port 0 --no-browser
+```
+
+En Windows, el acceso directo `CoreFSM Studio.cmd` de la raíz busca primero el
+Python de PlatformIO, que es el que trae `pyserial` y habilita el monitor.
+
+### Qué hay dentro
+
+| Vista | Para qué |
+|---|---|
+| Portal | Pantalla de tareas y lista de proyectos. Es por donde se empieza. |
+| Tabla de variables | Nombre, tipo, pin y comportamiento de cada señal. Escribe `hardware.csv`. |
+| Dispositivos | Motores, sonares, servos y chasis, con sus pines agrupados por función. |
+| Vista de dispositivo | Mapa de pines de la placa, con colisiones y avisos de PWM. |
+| Bloques de datos | Los ajustes de la máquina en un sitio, con tipo y valor inicial. |
+| Secuencia | Pasos, transiciones y el diagrama tipo Grafcet. |
+| Programación | Editor con autocompletado de los métodos reales de cada objeto. |
+| Monitor | Puerto serie: paso activo iluminado sobre el diagrama y mando remoto. |
+
+### El modelo del proyecto
+
+Studio guarda su modelo en `corefsm.project.json` dentro del proyecto y, al
+guardar, deriva de él:
+
+```
+corefsm.project.json
+   ├──▶ hardware.csv ──▶ corefsm_gen.py ──▶ include/HardwareConfig.h
+   ├──▶ corefsm.json         (nodo y placa)
+   ├──▶ platformio.ini       (platform y board)
+   ├──▶ include/generated/ProjectData.h · ProjectStates.h · ProjectDevices.h
+   └──▶ src/generated/ProjectData.cpp · ProjectDevices.cpp
+```
+
+Un proyecto sin `corefsm.project.json` se abre igual: Studio lo importa leyendo
+`hardware.csv` y `platformio.ini`, y no escribe nada hasta que se guarda.
+
+Los archivos generados se abren en solo lectura: editarlos sería trabajo que la
+siguiente generación borraría. Lo que se edita es su tabla.
+
+### Reglas que Studio aplica por ti
+
+- Un rol solo admite sus atributos: `DI` acepta pull-up y antirrebote, `DO`
+  acepta activo bajo y estado seguro, `AI` acepta filtro. Las demás celdas
+  aparecen apagadas y el tabulador las salta, porque el generador rechaza un CSV
+  que las lleve.
+- Dos usuarios en el mismo pin es un error, no un aviso: no se escribe nada.
+- Una velocidad sobre un pin sin PWM por hardware es un aviso con nombre y pin.
+- Al guardar, `platformio.ini` y `corefsm.json` se ponen de acuerdo con la placa
+  elegida en lugar de quedar en contradicción.
+
+### Monitor serie
+
+Lee lo que ya emite la librería —las líneas `[PASO]`, `[ESTADO]` y la tabla de
+observación de `printWatchTable()`— y las pinta sobre el diagrama de la
+secuencia. **No hace falta tocar el firmware**: basta con que el programa use
+`StepTracer` o `MaintenanceConsole`, como hacen las plantillas.
+
+Los botones de mando envían las mismas teclas que entiende `MaintenanceConsole`:
+`s` marcha, `x` paro, `p` pausa, `r` rearme, `w` tabla, `c` estadísticas de scan.
+
+La velocidad se propone leyendo `monitor_speed` de `platformio.ini`, que es el
+origen habitual de los caracteres extraños en el monitor.
+
+`pyserial` es opcional: sin él la aplicación funciona entera salvo el monitor,
+que lo explica en su propia vista.
+
 ## Generador neutral
 
 `corefsm_gen.py` acepta CSV, JSON explícito o un esquema Wokwi y produce la

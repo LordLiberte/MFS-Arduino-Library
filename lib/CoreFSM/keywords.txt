@@ -30,6 +30,7 @@ CfsmPacketTransport	KEYWORD1
 CfsmNetworkManager	KEYWORD1
 RemoteDigitalBackend	KEYWORD1
 MotorDrive	KEYWORD1
+DirPwmMotorDrive	KEYWORD1
 DifferentialChassis	KEYWORD1
 FourWheelChassis	KEYWORD1
 PositionAxis	KEYWORD1
