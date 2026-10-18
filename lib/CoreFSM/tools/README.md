@@ -67,6 +67,26 @@ Python de PlatformIO, que es el que trae `pyserial` y habilita el monitor.
 | Programación | Editor con autocompletado de los métodos reales de cada objeto. |
 | Monitor | Puerto serie: paso activo iluminado sobre el diagrama y mando remoto. |
 
+### Importar desde otra herramienta
+
+El botón «Importar» de la cinta —y el de la tabla de variables— abre una entrada
+única para cualquier fuente:
+
+| Fuente | Qué se le da |
+|---|---|
+| Wokwi | el `diagram.json` del proyecto |
+| Hoja de cálculo o esquemático | un `hardware.csv` con `name,role,target,…` |
+| Formato propio | un `hardware.json` |
+
+Se puede arrastrar el archivo o pegar su contenido; el formato se detecta solo.
+Antes de tocar el proyecto, Studio enseña qué señales ha encontrado, cuáles
+chocan con nombres que ya existen y los avisos del generador; después se elige
+entre **añadir a la tabla** (respetando lo que ya hay) o **reemplazarla**.
+
+Detrás no hay un lector nuevo: es el mismo `corefsm_gen.py` que usa la
+compilación, así que lo que importa Studio y lo que compila PlatformIO no pueden
+divergir.
+
 ### El modelo del proyecto
 
 Studio guarda su modelo en `corefsm.project.json` dentro del proyecto y, al
@@ -113,6 +133,15 @@ origen habitual de los caracteres extraños en el monitor.
 
 `pyserial` es opcional: sin él la aplicación funciona entera salvo el monitor,
 que lo explica en su propia vista.
+
+### Límites conocidos
+
+- El coloreado del editor recalcula el archivo entero en cada repintado. Con los
+  tamaños normales de un archivo de proyecto (menos de 300 líneas) es
+  imperceptible; a partir de unas mil se nota al escribir.
+- El editor no tiene buscar/reemplazar ni ir a línea desde la interfaz.
+- Las recetas (`RecipeExecutor`) y las alarmas (`AlarmManager`) existen en la
+  librería pero todavía no tienen vista propia.
 
 ## Generador neutral
 

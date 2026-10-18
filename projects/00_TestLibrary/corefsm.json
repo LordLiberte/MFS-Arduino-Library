@@ -1,13 +1,7 @@
 {
-  "source": {
-    "format": "csv",
-    "path": "hardware.csv"
-  },
+  "source": { "path": "hardware.csv", "format": "csv", "node": "main" },
   "nodes": [
-    {
-      "id": "main",
-      "board": "nano"
-    }
+    { "id": "main", "board": "nano" }
   ],
   "defaults": {
     "pullup": true,

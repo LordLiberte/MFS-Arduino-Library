@@ -756,6 +756,91 @@ class StudioWorkspace:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
+    # Importación de una fuente externa
+    #
+    # El generador ya sabe leer Wokwi, CSV y JSON; aquí solo se le da el
+    # contenido en un archivo temporal y se traduce su modelo a filas de la
+    # tabla de variables.  No se escribe nada en el proyecto: quien decide si
+    # reemplazar o añadir es el usuario, en la interfaz.
+    # ------------------------------------------------------------------
+    IMPORT_FORMATS = ("wokwi", "csv", "json")
+
+    @staticmethod
+    def sniff_format(content, filename=""):
+        name = (filename or "").lower()
+        text = content.lstrip()
+        if name.endswith(".csv") or (text and not text.startswith(("{", "["))):
+            return "csv"
+        try:
+            value = json.loads(content)
+        except ValueError:
+            return "csv"
+        if isinstance(value, dict) and ("parts" in value or "connections" in value):
+            return "wokwi"
+        return "json"
+
+    def import_hardware(self, project_name, content, fmt="auto", filename="", node=None):
+        if not isinstance(content, str) or not content.strip():
+            raise StudioError("El archivo está vacío", "invalid_request", 422)
+        if len(content.encode("utf-8")) > 2 * 1024 * 1024:
+            raise StudioError("El archivo supera los 2 MB", "file_too_large", 413)
+        directory = self._project_path(project_name)
+        resolved = self.sniff_format(content, filename) if fmt in ("auto", "", None) else str(fmt)
+        if resolved not in self.IMPORT_FORMATS:
+            raise StudioError("Formato no soportado: %s" % resolved, "invalid_format", 422)
+
+        suffix = ".csv" if resolved == "csv" else ".json"
+        module = self._load_generator()
+        temporary = Path(tempfile.mkdtemp(prefix="corefsm-import-")) / ("origen" + suffix)
+        try:
+            temporary.write_text(content, encoding="utf-8")
+            config = _read_json(directory / "corefsm.json", {}) or {}
+            try:
+                model = module.load_model(str(temporary), resolved, config, node)
+            except Exception as exc:
+                if exc.__class__.__name__ == "ConfigError":
+                    raise StudioError(str(exc), "import_failed", 422)
+                raise StudioError("No se ha podido leer la fuente: %s" % exc, "import_failed", 422)
+        finally:
+            shutil.rmtree(str(temporary.parent), ignore_errors=True)
+
+        signals = [self._signal_to_row(signal, resolved) for signal in model.signals]
+        board = model.board if model.board in BOARDS else ""
+        by_pio = next((key for key, value in BOARDS.items()
+                       if value["pioBoard"] == model.board), "")
+        return {
+            "format": resolved,
+            "node": model.node,
+            "board": board or by_pio,
+            "signals": signals,
+            "warnings": list(model.warnings),
+            "backends": [getattr(backend, "name", str(backend)) for backend in model.backends],
+        }
+
+    @staticmethod
+    def _signal_to_row(signal, source):
+        """Traduce una señal del generador a una fila de la tabla de variables."""
+        allowed = ROLE_FIELDS.get(signal.role, ())
+        row = {
+            "name": signal.name,
+            "role": signal.role,
+            "target": str(signal.target or ""),
+            "pullup": "" if signal.pullup is None else bool(signal.pullup),
+            "activeLow": "" if signal.active_low is None else bool(signal.active_low),
+            "debounceMs": "" if signal.debounce_ms is None else int(signal.debounce_ms),
+            "filter": "" if signal.filter is None else int(signal.filter),
+            "safe": "" if signal.safe is None else bool(signal.safe),
+            "group": "Importado de " + source,
+            "description": "",
+        }
+        mapping = {"pullup": "pullup", "active_low": "activeLow", "debounce_ms": "debounceMs",
+                   "filter": "filter", "safe": "safe"}
+        for column, key in mapping.items():
+            if column not in allowed:
+                row[key] = ""
+        return row
+
+    # ------------------------------------------------------------------
     # Project creation
     # ------------------------------------------------------------------
     def create_project(self, name, board="nano", preset="starter", display_name=None):
